@@ -106,7 +106,7 @@ services:
     working_dir: /app
     command: >
       bash -c "pip install --no-cache-dir -r requirements.txt &&
-      uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
+      uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir api --reload-dir etl"
     depends_on:
       - postgres
     networks:

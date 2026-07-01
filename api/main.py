@@ -12,11 +12,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from etl.db import get_db
-    from etl.models import EmpresaFavorita, KpisAnaliticos
+    from etl.models import EmpresaFavorita, KpisAnaliticos, DatosFinancierosRaw
 except ModuleNotFoundError:
     # Intento alternativo en caso de problemas de path
     from db import get_db
-    from models import EmpresaFavorita, KpisAnaliticos
+    from models import EmpresaFavorita, KpisAnaliticos, DatosFinancierosRaw
 
 app = FastAPI(
     title="Financial ETL API",
@@ -54,6 +54,19 @@ class KpiSchema(BaseModel):
     roe: Optional[float]
     roa: Optional[float]
     debt_to_equity: Optional[float]
+
+    class Config:
+        from_attributes = True
+
+class FinancialsSchema(BaseModel):
+    id: int
+    ticker: str
+    fecha_reporte: date
+    total_revenue: Optional[float]
+    net_income: Optional[float]
+    total_assets: Optional[float]
+    total_liabilities: Optional[float]
+    total_equity: Optional[float]
 
     class Config:
         from_attributes = True
@@ -96,3 +109,25 @@ def get_kpis_by_ticker(ticker: str, db: Session = Depends(get_db)):
         return kpis
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al obtener KPIs para {ticker_upper}: {str(e)}")
+
+@app.get("/financials/{ticker}", response_model=List[FinancialsSchema], tags=["Datos Financieros Crudos"])
+def get_financials_by_ticker(ticker: str, db: Session = Depends(get_db)):
+    """
+    Retorna el histórico de datos financieros crudos (ingresos, beneficios, activos, etc.) de una empresa específica,
+    ordenados por fecha de reporte (de más antiguo a más reciente, ideal para gráficos).
+    """
+    ticker_upper = ticker.strip().upper()
+    
+    # Verificar si la empresa existe
+    empresa = db.query(EmpresaFavorita).filter(EmpresaFavorita.ticker == ticker_upper).first()
+    if not empresa:
+        raise HTTPException(status_code=404, detail=f"Empresa con ticker '{ticker_upper}' no encontrada.")
+        
+    try:
+        financials = db.query(DatosFinancierosRaw)\
+                       .filter(DatosFinancierosRaw.ticker == ticker_upper)\
+                       .order_by(DatosFinancierosRaw.fecha_reporte.asc())\
+                       .all()
+        return financials
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al obtener datos financieros para {ticker_upper}: {str(e)}")
