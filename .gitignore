@@ -1,0 +1,38 @@
+# Documentación didáctica (Requisito del proyecto: mantener historial limpio)
+/docs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.env
+.pytest_cache/
+.mypy_cache/
+
+# Node.js (React)
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Docker
+.docker-envs
+postgres_data/
+pgadmin_data/
+airflow_data/
