@@ -4,7 +4,7 @@ import {
   LineChart, Line
 } from 'recharts';
 import { 
-  Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw, Trash2
+  Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw, Trash2, Download
 } from 'lucide-react';
 import './App.css';
 
@@ -22,28 +22,34 @@ const MOCK_STOCK_PRICES = {
 
 // Lista de KPIs disponibles para interactuar y graficar
 const ALL_KPI_METRICS = [
-  { key: 'Margen Neto (%)', label: 'Margen Neto', color: 'var(--color-primary)' },
-  { key: 'Margen Operativo (%)', label: 'Margen Operativo', color: 'var(--color-success)' },
-  { key: 'Margen EBITDA (%)', label: 'Margen EBITDA', color: 'var(--color-secondary)' },
-  { key: 'ROE (%)', label: 'ROE', color: '#e879f9' },
-  { key: 'ROA (%)', label: 'ROA', color: '#22d3ee' },
-  { key: 'Apalancamiento (x)', label: 'Apalancamiento (D/E)', color: '#f87171' },
-  { key: 'Liquidez (x)', label: 'Liquidez Corriente', color: '#fbbf24' },
-  { key: 'EPS ($)', label: 'EPS', color: '#a78bfa' }
+  { key: 'Margen Neto (%)', label: 'Margen Neto', color: 'var(--color-primary)', yAxisId: 'left' },
+  { key: 'Margen Operativo (%)', label: 'Margen Operativo', color: 'var(--color-success)', yAxisId: 'left' },
+  { key: 'Margen EBITDA (%)', label: 'Margen EBITDA', color: 'var(--color-secondary)', yAxisId: 'left' },
+  { key: 'ROE (%)', label: 'ROE', color: '#e879f9', yAxisId: 'left' },
+  { key: 'ROA (%)', label: 'ROA', color: '#22d3ee', yAxisId: 'left' },
+  { key: 'Apalancamiento (x)', label: 'Apalancamiento (D/E)', color: '#f87171', yAxisId: 'right' },
+  { key: 'Liquidez (x)', label: 'Liquidez Corriente', color: '#fbbf24', yAxisId: 'right' },
+  { key: 'EPS ($)', label: 'EPS', color: '#a78bfa', yAxisId: 'right' }
 ];
 
 export default function App() {
   const [companies, setCompanies] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState('');
+  const [competitorTicker, setCompetitorTicker] = useState('');
+  
   const [financials, setFinancials] = useState([]);
   const [kpis, setKpis] = useState([]);
+  const [competitorFinancials, setCompetitorFinancials] = useState([]);
+  const [competitorKpis, setCompetitorKpis] = useState([]);
+  
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   
-  // Toggles de periodo
+  // Toggles de periodo y rango de fechas
   const [timeframe, setTimeframe] = useState('Anual'); // 'Anual' o 'Trimestral'
+  const [timeRangeActive, setTimeRangeActive] = useState('MAX'); // '1A', '3A', '5A', 'MAX'
   
-  // KPIs que el usuario desea ver en el gráfico
+  // KPIs que el usuario desea ver en el gráfico de líneas
   const [visibleKpis, setVisibleKpis] = useState([
     'Margen Neto (%)', 
     'Margen Operativo (%)', 
@@ -70,7 +76,7 @@ export default function App() {
   // Estado de actualización manual del ETL
   const [refreshingETL, setRefreshingETL] = useState(false);
 
-  // Cargar empresas favoritas iniciales
+  // Cargar lista inicial de empresas favoritas
   const loadCompanies = (selectTickerAfterLoad = null) => {
     fetch(`${API_BASE_URL}/empresas`)
       .then(res => {
@@ -83,7 +89,6 @@ export default function App() {
           if (selectTickerAfterLoad) {
             setSelectedTicker(selectTickerAfterLoad);
           } else {
-            // Si el ticker previamente seleccionado sigue estando activo, mantenerlo
             const stillExists = selectedTicker && data.find(c => c.ticker === selectedTicker);
             if (stillExists) {
               setSelectedTicker(selectedTicker);
@@ -108,7 +113,7 @@ export default function App() {
     loadCompanies();
   }, []);
 
-  // Cargar datos financieros y KPIs
+  // Cargar datos financieros y KPIs del principal y competidor
   const loadData = () => {
     if (!selectedTicker) {
       setLoading(false);
@@ -118,12 +123,20 @@ export default function App() {
     setError(null);
 
     const periodQuery = timeframe === 'Anual' ? 'FY' : 'Q';
-
-    Promise.all([
+    const fetches = [
       fetch(`${API_BASE_URL}/financials/${selectedTicker}?periodo=${periodQuery}`).then(res => res.json()),
       fetch(`${API_BASE_URL}/kpis/${selectedTicker}?periodo=${periodQuery}`).then(res => res.json())
-    ])
-      .then(([financialsData, kpisData]) => {
+    ];
+
+    if (competitorTicker) {
+      fetches.push(fetch(`${API_BASE_URL}/financials/${competitorTicker}?periodo=${periodQuery}`).then(res => res.json()));
+      fetches.push(fetch(`${API_BASE_URL}/kpis/${competitorTicker}?periodo=${periodQuery}`).then(res => res.json()));
+    }
+
+    Promise.all(fetches)
+      .then(results => {
+        const [financialsData, kpisData, compFinancialsData, compKpisData] = results;
+        
         if (financialsData.detail || kpisData.detail) {
           throw new Error(financialsData.detail || kpisData.detail);
         }
@@ -131,15 +144,32 @@ export default function App() {
         setFinancials(financialsData);
         setKpis(kpisData);
         
-        // Obtener años únicos disponibles para los selectores
-        const years = Array.from(new Set([
-          ...financialsData.map(f => f.fecha_reporte.split('-')[0]),
-          ...kpisData.map(k => k.fecha_reporte.split('-')[0])
-        ])).sort();
+        if (competitorTicker && compFinancialsData && compKpisData) {
+          if (compFinancialsData.detail || compKpisData.detail) {
+            console.warn("Error cargando competidor: ", compFinancialsData.detail || compKpisData.detail);
+            setCompetitorFinancials([]);
+            setCompetitorKpis([]);
+          } else {
+            setCompetitorFinancials(compFinancialsData);
+            setCompetitorKpis(compKpisData);
+          }
+        } else {
+          setCompetitorFinancials([]);
+          setCompetitorKpis([]);
+        }
+        
+        // Obtener la unión de todos los años disponibles
+        const allData = [...financialsData, ...kpisData];
+        if (competitorTicker && compFinancialsData && compKpisData) {
+          allData.push(...compFinancialsData, ...compKpisData);
+        }
+        
+        const years = Array.from(new Set(
+          allData.map(item => item.fecha_reporte.split('-')[0])
+        )).sort();
         
         if (years.length > 0) {
           setAvailableYears(years);
-          // Validar que el rango de años actual esté dentro de los años disponibles
           if (!years.includes(startYear)) setStartYear(years[0]);
           if (!years.includes(endYear)) setEndYear(years[years.length - 1]);
         }
@@ -148,19 +178,46 @@ export default function App() {
       })
       .catch(err => {
         console.error(err);
-        setError(`Error al obtener los datos para ${selectedTicker}: ${err.message}`);
+        setError(`Error al obtener los datos de la API: ${err.message}`);
         setLoading(false);
       });
   };
 
   useEffect(() => {
     loadData();
-  }, [selectedTicker, timeframe]);
+  }, [selectedTicker, timeframe, competitorTicker]);
 
-  // Manejar cambio de empresa
+  // Manejar cambio de empresa principal
   const handleCompanyChange = (e) => {
     setSelectedTicker(e.target.value);
-    setIsFavorite(false); // Reset de favorito estético
+    // Si la empresa principal coincide con el competidor, limpiar competidor
+    if (e.target.value === competitorTicker) {
+      setCompetitorTicker('');
+    }
+    setIsFavorite(false);
+  };
+
+  // Manejar píldoras de filtros rápidos de tiempo (1A, 3A, 5A, MAX)
+  const handleTimeRangeSelect = (range) => {
+    setTimeRangeActive(range);
+    if (availableYears.length === 0) return;
+    const latestYear = parseInt(availableYears[availableYears.length - 1]);
+    
+    if (range === '1A') {
+      setStartYear(latestYear.toString());
+      setEndYear(latestYear.toString());
+    } else if (range === '3A') {
+      const start = Math.max(parseInt(availableYears[0]), latestYear - 2);
+      setStartYear(start.toString());
+      setEndYear(latestYear.toString());
+    } else if (range === '5A') {
+      const start = Math.max(parseInt(availableYears[0]), latestYear - 4);
+      setStartYear(start.toString());
+      setEndYear(latestYear.toString());
+    } else if (range === 'MAX') {
+      setStartYear(availableYears[0]);
+      setEndYear(availableYears[availableYears.length - 1]);
+    }
   };
 
   // Ejecución manual del ETL
@@ -182,7 +239,7 @@ export default function App() {
       });
   };
 
-  // Manejar eliminación de empresa (DELETE /empresas/{ticker})
+  // Manejar eliminación de empresa
   const handleDeleteCompany = () => {
     if (!selectedTicker) return;
     const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar la empresa ${selectedTicker} y todos sus registros históricos en cascada?`);
@@ -206,7 +263,7 @@ export default function App() {
       });
   };
 
-  // Manejar envío de nueva empresa (POST /empresas + POST /etl/run)
+  // Manejar envío de nueva empresa
   const handleAddCompany = (e) => {
     e.preventDefault();
     setModalError(null);
@@ -225,7 +282,6 @@ export default function App() {
       sector: newSector.trim() || null
     };
 
-    // 1. Guardar la empresa en la BD
     fetch(`${API_BASE_URL}/empresas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -238,8 +294,6 @@ export default function App() {
       })
       .then(company => {
         setModalSuccess('Empresa guardada en base de datos. Descargando reportes trimestrales y anuales de Yahoo Finance...');
-        
-        // 2. Disparar el ETL en segundo plano para obtener sus datos de inmediato
         fetch(`${API_BASE_URL}/etl/run`, { method: 'POST' })
           .then(() => {
             setTimeout(() => {
@@ -249,7 +303,6 @@ export default function App() {
               setSubmitting(false);
               setShowAddModal(false);
               setModalSuccess(null);
-              
               loadCompanies(company.ticker);
             }, 3000);
           })
@@ -265,6 +318,40 @@ export default function App() {
       });
   };
 
+  // Exportar a CSV para Excel
+  const exportToCsv = () => {
+    const headers = ['Fecha Reporte', 'Periodo', 'Ingresos', 'Beneficio Neto', 'Margen Operativo', 'Margen EBITDA', 'Margen Neto', 'EPS', 'Current Ratio', 'Apalancamiento'];
+    const rows = filteredKpis.map(kpi => {
+      const raw = filteredFinancials.find(f => f.fecha_reporte === kpi.fecha_reporte && f.periodo === kpi.periodo) || {};
+      return [
+        kpi.fecha_reporte,
+        kpi.periodo,
+        raw.total_revenue || '',
+        raw.net_income || '',
+        kpi.margen_operativo || '',
+        kpi.margen_ebitda || '',
+        kpi.margen_neto || '',
+        kpi.eps || '',
+        kpi.current_ratio || '',
+        kpi.debt_to_equity || ''
+      ];
+    });
+    
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+    csvContent += headers.join(",") + "\n";
+    rows.forEach(row => {
+      csvContent += row.map(v => `"${v}"`).join(",") + "\n";
+    });
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${selectedTicker}_data_${timeframe.toLowerCase()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Filtrar datos según el rango de años seleccionado
   const filterByYearRange = (data) => {
     return data.filter(item => {
@@ -276,22 +363,66 @@ export default function App() {
   const filteredFinancials = filterByYearRange(financials);
   const filteredKpis = filterByYearRange(kpis);
 
-  // Obtener la información de la empresa actual
+  const filteredCompFinancials = filterByYearRange(competitorFinancials);
+  const filteredCompKpis = filterByYearRange(competitorKpis);
+
+  // Obtener información de empresa actual
   const currentCompany = companies.find(c => c.ticker === selectedTicker) || {
     ticker: selectedTicker || 'Ninguna',
     nombre_empresa: selectedTicker ? selectedTicker : 'No hay empresas registradas',
     sector: 'N/A'
   };
 
-  // kpis está ordenado DESC, el índice 0 es el reporte más reciente
+  // KPIs del último reporte
   const latestKpi = filteredKpis[0] || {};
   const mockPrice = MOCK_STOCK_PRICES[selectedTicker] || { price: '0.00', change: '+0.00', pct: '+0.00', status: 'positive' };
+
+  // Calcular P/B Ratio usando Patrimonio y Acciones Diluidas
+  const rawForLatest = filteredFinancials.find(f => f.fecha_reporte === latestKpi.fecha_reporte && f.periodo === latestKpi.periodo) || {};
+  const bookValuePerShare = rawForLatest.total_equity && rawForLatest.diluted_average_shares && rawForLatest.diluted_average_shares > 0 
+    ? rawForLatest.total_equity / rawForLatest.diluted_average_shares 
+    : null;
+  const pbRatioStr = bookValuePerShare && bookValuePerShare > 0 
+    ? `${(mockPrice.price / bookValuePerShare).toFixed(2)}x` 
+    : 'N/A';
+
+  // Calcular Salud Financiera (Health Score)
+  const calculateHealthScore = (kpi) => {
+    if (!kpi || Object.keys(kpi).length === 0) return { score: 0, status: 'N/A', color: 'var(--text-muted)' };
+    let score = 0;
+    if (kpi.roa > 0.05) score += 2;
+    else if (kpi.roa > 0) score += 1;
+    
+    if (kpi.current_ratio > 1.5) score += 2;
+    else if (kpi.current_ratio > 1.0) score += 1;
+    
+    if (kpi.debt_to_equity < 1.0) score += 2;
+    else if (kpi.debt_to_equity < 2.0) score += 1;
+    
+    if (kpi.margen_neto > 0.10) score += 2;
+    else if (kpi.margen_neto > 0) score += 1;
+    
+    if (kpi.eps > 0) score += 2;
+    
+    let status = 'Riesgo Financiero';
+    let color = 'var(--color-danger)';
+    if (score >= 8) {
+      status = 'Zona Segura (Fuerte)';
+      color = 'var(--color-success)';
+    } else if (score >= 5) {
+      status = 'Zona de Prudencia';
+      color = 'var(--color-secondary)';
+    }
+    return { score, status, color };
+  };
+
+  const health = calculateHealthScore(latestKpi);
 
   // Formateadores didácticos
   const formatCurrency = (value) => {
     if (value === null || value === undefined) return 'N/A';
     const billions = value / 1_000_000_000;
-    return `${billions.toFixed(2)} MM`;
+    return `$${billions.toFixed(2)}B`;
   };
 
   const formatPercent = (value) => {
@@ -309,8 +440,8 @@ export default function App() {
     return `$${value.toFixed(2)}`;
   };
 
-  // Preparar etiquetas de eje X (año o año + Q) en orden cronológico ASC
-  const cronologicalKpisData = [...filteredKpis].reverse().map(item => ({
+  // Mapear datos cronológicos del principal
+  const mappedPrimaryKpis = [...filteredKpis].reverse().map(item => ({
     ...item,
     periodoLabel: item.periodo === 'FY' ? item.fecha_reporte.split('-')[0] : `${item.fecha_reporte.split('-')[0]} ${item.periodo}`,
     'Margen Neto (%)': item.margen_neto ? Math.round(item.margen_neto * 10000) / 100 : 0,
@@ -323,12 +454,93 @@ export default function App() {
     'EPS ($)': item.eps ? Math.round(item.eps * 100) / 100 : 0,
   }));
 
+  // Mapear datos del competidor si está seleccionado
+  const mappedCompetitorKpis = [...filteredCompKpis].reverse().map(item => ({
+    ...item,
+    periodoLabel: item.periodo === 'FY' ? item.fecha_reporte.split('-')[0] : `${item.fecha_reporte.split('-')[0]} ${item.periodo}`,
+    'Margen Neto (%)': item.margen_neto ? Math.round(item.margen_neto * 10000) / 100 : 0,
+    'Margen Operativo (%)': item.margen_operativo ? Math.round(item.margen_operativo * 10000) / 100 : 0,
+    'Margen EBITDA (%)': item.margen_ebitda ? Math.round(item.margen_ebitda * 10000) / 100 : 0,
+    'ROE (%)': item.roe ? Math.round(item.roe * 10000) / 100 : 0,
+    'ROA (%)': item.roa ? Math.round(item.roa * 10000) / 100 : 0,
+    'Apalancamiento (x)': item.debt_to_equity ? Math.round(item.debt_to_equity * 100) / 100 : 0,
+    'Liquidez (x)': item.current_ratio ? Math.round(item.current_ratio * 100) / 100 : 0,
+    'EPS ($)': item.eps ? Math.round(item.eps * 100) / 100 : 0,
+  }));
+
+  // Combinar datos primarios y competidor para el LineChart (Benchmarking)
+  const combinedKpisData = mappedPrimaryKpis.map(primaryItem => {
+    const competitorItem = mappedCompetitorKpis.find(c => c.periodoLabel === primaryItem.periodoLabel);
+    const combined = { ...primaryItem };
+    
+    // Inyectar datos crudos para el Tooltip enriquecido
+    const primaryRaw = filteredFinancials.find(f => f.fecha_reporte === primaryItem.fecha_reporte && f.periodo === primaryItem.periodo) || {};
+    combined.raw_net_income = primaryRaw.net_income;
+    combined.raw_total_revenue = primaryRaw.total_revenue;
+    combined.raw_operating_income = primaryRaw.operating_income;
+    combined.raw_ebitda = primaryRaw.ebitda;
+
+    ALL_KPI_METRICS.forEach(metric => {
+      // Clave unívoca primaria
+      combined[`${selectedTicker} - ${metric.key}`] = primaryItem[metric.key];
+      if (competitorItem) {
+        combined[`${competitorTicker} - ${metric.key}`] = competitorItem[metric.key];
+      }
+    });
+    
+    return combined;
+  });
+
   const cronologicalFinancialsData = [...filteredFinancials].map(item => ({
     ...item,
     periodoLabel: item.periodo === 'FY' ? item.fecha_reporte.split('-')[0] : `${item.fecha_reporte.split('-')[0]} ${item.periodo}`,
     'Ingresos (MM)': item.total_revenue ? item.total_revenue / 1_000_000_000 : 0,
     'Beneficios (MM)': item.net_income ? item.net_income / 1_000_000_000 : 0,
   }));
+
+  // Componente de Tooltip Enriquecido
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="custom-tooltip glass fade-in">
+          <p className="tooltip-label">{label}</p>
+          <div className="tooltip-items">
+            {payload.map((item, idx) => {
+              const rawObj = item.payload;
+              const isPercent = item.name.includes('%') || item.dataKey.includes('%');
+              const isRatio = item.name.includes('(x)') || item.dataKey.includes('(x)');
+              const isEps = item.name.includes('$') || item.dataKey.includes('$');
+              
+              let valueStr = '';
+              if (isPercent) valueStr = `${item.value.toFixed(2)}%`;
+              else if (isEps) valueStr = `$${item.value.toFixed(2)}`;
+              else valueStr = item.value.toFixed(2);
+              
+              // Desglose de fórmula en vivo usando datos raw
+              let breakdownStr = '';
+              if (!competitorTicker) {
+                if (item.dataKey.includes('Margen Neto') && rawObj.raw_net_income && rawObj.raw_total_revenue) {
+                  breakdownStr = ` (Net: ${formatCurrency(rawObj.raw_net_income)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                } else if (item.dataKey.includes('Margen Operativo') && rawObj.raw_operating_income && rawObj.raw_total_revenue) {
+                  breakdownStr = ` (Op: ${formatCurrency(rawObj.raw_operating_income)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                } else if (item.dataKey.includes('Margen EBITDA') && rawObj.raw_ebitda && rawObj.raw_total_revenue) {
+                  breakdownStr = ` (EBITDA: ${formatCurrency(rawObj.raw_ebitda)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                }
+              }
+              
+              return (
+                <div key={idx} className="tooltip-item" style={{ color: item.color }}>
+                  <span className="tooltip-item-name">{item.name}:</span>
+                  <span className="tooltip-item-value">{valueStr}{breakdownStr}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="app-wrapper">
@@ -343,9 +555,9 @@ export default function App() {
           </div>
 
           <div className="controls-section">
-            {/* Selector de Empresas */}
+            {/* Selector de Empresa Principal */}
             <div className="control-wrapper">
-              <span className="control-label">Empresa Seleccionada</span>
+              <span className="control-label">Empresa Principal</span>
               <select 
                 className="select-input" 
                 value={selectedTicker} 
@@ -364,43 +576,61 @@ export default function App() {
               </select>
             </div>
 
-            {/* Filtro Año Desde */}
+            {/* Selector de Competidor (Benchmarking) */}
             <div className="control-wrapper">
-              <span className="control-label">Año Desde</span>
+              <span className="control-label">Comparar con</span>
               <select 
                 className="select-input" 
-                value={startYear} 
-                onChange={(e) => setStartYear(e.target.value)}
-                disabled={companies.length === 0}
+                value={competitorTicker} 
+                onChange={(e) => setCompetitorTicker(e.target.value)}
+                disabled={companies.length <= 1}
               >
-                {availableYears.map(year => (
-                  <option key={year} value={year} disabled={year > endYear}>
-                    {year}
+                <option value="">(Ninguno)</option>
+                {companies.filter(c => c.ticker !== selectedTicker).map(c => (
+                  <option key={c.id} value={c.ticker}>
+                    {c.ticker} - {c.nombre_empresa}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Filtro Año Hasta */}
-            <div className="control-wrapper">
-              <span className="control-label">Año Hasta</span>
-              <select 
-                className="select-input" 
-                value={endYear} 
-                onChange={(e) => setEndYear(e.target.value)}
-                disabled={companies.length === 0}
-              >
-                {availableYears.map(year => (
-                  <option key={year} value={year} disabled={year < startYear}>
-                    {year}
-                  </option>
-                ))}
-              </select>
+            {/* Filtros de Rango de Años */}
+            <div className="control-wrapper" style={{ minWidth: '220px' }}>
+              <span className="control-label">Rango de Años</span>
+              <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                <select 
+                  className="select-input" 
+                  value={startYear} 
+                  onChange={(e) => { setStartYear(e.target.value); setTimeRangeActive(''); }}
+                  disabled={companies.length === 0}
+                  style={{ width: '80px' }}
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year} disabled={year > endYear}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ color: 'var(--text-muted)' }}>a</span>
+                <select 
+                  className="select-input" 
+                  value={endYear} 
+                  onChange={(e) => { setEndYear(e.target.value); setTimeRangeActive(''); }}
+                  disabled={companies.length === 0}
+                  style={{ width: '80px' }}
+                >
+                  {availableYears.map(year => (
+                    <option key={year} value={year} disabled={year < startYear}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Botones de acción */}
             <div className="control-wrapper" style={{ justifyContent: 'flex-end', height: '48px', paddingTop: '16px' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
                 <button 
                   className="toggle-btn active"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', backgroundColor: 'var(--color-primary-glow)', borderColor: 'var(--color-primary)' }}
@@ -415,7 +645,7 @@ export default function App() {
                   disabled={refreshingETL}
                   title="Ejecutar ETL para descargar nuevos datos"
                 >
-                  <RefreshCw size={16} className={refreshingETL ? 'spin' : ''} /> {refreshingETL ? 'Corriendo...' : 'Correr ETL'}
+                  <RefreshCw size={16} className={refreshingETL ? 'spin' : ''} /> Correr ETL
                 </button>
                 <button 
                   className="toggle-btn"
@@ -480,6 +710,52 @@ export default function App() {
                   </div>
                   <span className="stock-market">Sector: {currentCompany.sector || 'N/A'}</span>
                 </div>
+                
+                {/* Granularidad y Ejes temporales integrados */}
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <div className="chart-toggles glass" style={{ padding: '0.25rem' }}>
+                    <button 
+                      className={`toggle-btn ${timeRangeActive === '1A' ? 'active' : ''}`}
+                      onClick={() => handleTimeRangeSelect('1A')}
+                    >
+                      1A
+                    </button>
+                    <button 
+                      className={`toggle-btn ${timeRangeActive === '3A' ? 'active' : ''}`}
+                      onClick={() => handleTimeRangeSelect('3A')}
+                    >
+                      3A
+                    </button>
+                    <button 
+                      className={`toggle-btn ${timeRangeActive === '5A' ? 'active' : ''}`}
+                      onClick={() => handleTimeRangeSelect('5A')}
+                    >
+                      5A
+                    </button>
+                    <button 
+                      className={`toggle-btn ${timeRangeActive === 'MAX' ? 'active' : ''}`}
+                      onClick={() => handleTimeRangeSelect('MAX')}
+                    >
+                      MAX
+                    </button>
+                  </div>
+
+                  <div className="chart-toggles glass" style={{ padding: '0.25rem' }}>
+                    <button 
+                      className={`toggle-btn ${timeframe === 'Anual' ? 'active' : ''}`}
+                      onClick={() => setTimeframe('Anual')}
+                    >
+                      Anual
+                    </button>
+                    <button 
+                      className={`toggle-btn ${timeframe === 'Trimestral' ? 'active' : ''}`}
+                      onClick={() => setTimeframe('Trimestral')}
+                    >
+                      Trimestral
+                    </button>
+                  </div>
+                </div>
+
                 <div className="stock-price-area">
                   <div className="stock-price-row">
                     <span className="stock-price">${mockPrice.price}</span>
@@ -492,9 +768,8 @@ export default function App() {
               </div>
             </section>
 
-            {/* Grid de KPIs principales */}
+            {/* Grid de KPIs principales de Rendimiento */}
             <section className="kpi-grid fade-in">
-              {/* Margen Neto */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Margen Neto</span>
@@ -504,7 +779,6 @@ export default function App() {
                 <span className="kpi-card-desc">Conversión de ingresos a beneficio neto ({latestKpi.periodo} {latestKpi.fecha_reporte?.split('-')[0] || ''})</span>
               </div>
 
-              {/* Margen Operativo */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Margen Operativo</span>
@@ -514,7 +788,6 @@ export default function App() {
                 <span className="kpi-card-desc">Margen de ganancias antes de impuestos y finanzas</span>
               </div>
 
-              {/* Current Ratio */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Liquidez Corriente</span>
@@ -524,7 +797,6 @@ export default function App() {
                 <span className="kpi-card-desc">Ratio Activo Corriente / Pasivo Corriente (ideal &gt; 1.0)</span>
               </div>
 
-              {/* Beneficios Por Acción (EPS) */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Beneficio por Acción (EPS)</span>
@@ -535,15 +807,56 @@ export default function App() {
               </div>
             </section>
 
-            {/* Grid de Gráficos (Estilo Referencia) */}
-            <section className="charts-grid fade-in">
+            {/* Grid de KPIs de Valoración de Mercado y Solvencia */}
+            <section className="kpi-grid fade-in" style={{ marginTop: '1.5rem' }}>
+              {/* P/E Ratio */}
+              <div className="kpi-card glass">
+                <div className="kpi-card-header">
+                  <span className="kpi-card-title">P/E Ratio (Precio/Ganancia)</span>
+                  <TrendingUp className="kpi-icon" size={20} />
+                </div>
+                <span className="kpi-card-value">
+                  {latestKpi.eps && latestKpi.eps > 0 ? `${(mockPrice.price / latestKpi.eps).toFixed(2)}x` : 'N/A'}
+                </span>
+                <span className="kpi-card-desc">Relación precio acción / beneficio neto. Precio: ${mockPrice.price}</span>
+              </div>
+
+              {/* P/B Ratio */}
+              <div className="kpi-card glass">
+                <div className="kpi-card-header">
+                  <span className="kpi-card-title">P/B Ratio (Precio/Libro)</span>
+                  <Activity className="kpi-icon" size={20} />
+                </div>
+                <span className="kpi-card-value">{pbRatioStr}</span>
+                <span className="kpi-card-desc">Relación precio acción / valor en libros de la empresa</span>
+              </div>
+
+              {/* Solvencia (Health Score) */}
+              <div className="kpi-card glass" style={{ borderLeft: `4px solid ${health.color}` }}>
+                <div className="kpi-card-header">
+                  <span className="kpi-card-title">Puntaje de Solvencia (Health Score)</span>
+                  <AlertTriangle className="kpi-icon" size={20} style={{ color: health.color }} />
+                </div>
+                <span className="kpi-card-value" style={{ color: health.color }}>{health.score}/10</span>
+                <span className="kpi-card-desc" style={{ fontWeight: '600', color: health.color }}>
+                  {health.status}
+                </span>
+              </div>
+            </section>
+
+            {/* Grid de Gráficos */}
+            <section className="charts-grid fade-in" style={{ marginTop: '1.5rem' }}>
               
-              {/* Gráfico 1: Análisis Interactivo de KPIs */}
+              {/* Gráfico 1: Análisis Interactivo de KPIs (Ejes Y Múltiples) */}
               <div className="chart-card glass">
                 <div className="chart-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
                   <div className="chart-title-area">
                     <h3 className="chart-title">Análisis de KPIs Interactivo</h3>
-                    <span className="chart-subtitle">Selecciona los indicadores que deseas comparar y visualizar:</span>
+                    <span className="chart-subtitle">
+                      {competitorTicker 
+                        ? `Comparando ${selectedTicker} (Línea Continua) vs ${competitorTicker} (Línea Discontinua)` 
+                        : 'Selecciona los indicadores que deseas comparar y visualizar:'}
+                    </span>
                   </div>
                   
                   {/* Selector de Chips de KPIs */}
@@ -580,52 +893,77 @@ export default function App() {
                 <div className="chart-container-wrapper" style={{ marginTop: '0.5rem' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart 
-                      data={cronologicalKpisData}
+                      data={combinedKpisData}
                       margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                     >
                       <CartesianGrid stroke="#1e2638" strokeDasharray="3 3" />
                       <XAxis dataKey="periodoLabel" stroke="#8e9bb2" />
-                      <YAxis stroke="#8e9bb2" />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#111520', borderColor: '#21293a', color: '#f3f4f6' }}
-                        labelStyle={{ fontWeight: 'bold' }}
-                      />
-                      <Legend />
-                      {ALL_KPI_METRICS.filter(metric => visibleKpis.includes(metric.key)).map(metric => (
-                        <Line 
-                          key={metric.key}
-                          type="monotone"
-                          dataKey={metric.key}
-                          stroke={metric.color}
-                          strokeWidth={3}
-                          activeDot={{ r: 6 }}
-                        />
-                      ))}
+                      
+                      {/* Eje Y Múltiple: Izquierdo para porcentajes, Derecho para absolutos y ratios */}
+                      <YAxis yAxisId="left" stroke="#8e9bb2" unit="%" />
+                      <YAxis yAxisId="right" orientation="right" stroke="#8e9bb2" />
+                      
+                      <Tooltip content={<CustomTooltip />} />
+                      
+                      {/* Renderizar dinámicamente las líneas de KPIs seleccionados */}
+                      {ALL_KPI_METRICS.filter(metric => visibleKpis.includes(metric.key)).map(metric => {
+                        const elements = [];
+                        if (competitorTicker) {
+                          // Línea de la empresa Principal (sólida)
+                          elements.push(
+                            <Line 
+                              key={`${selectedTicker}-${metric.key}`}
+                              yAxisId={metric.yAxisId}
+                              type="monotone"
+                              name={`${selectedTicker} ${metric.label}`}
+                              dataKey={`${selectedTicker} - ${metric.key}`}
+                              stroke={metric.color}
+                              strokeWidth={3}
+                              activeDot={{ r: 6 }}
+                            />
+                          );
+                          // Línea de la empresa Competidora (discontinua)
+                          elements.push(
+                            <Line 
+                              key={`${competitorTicker}-${metric.key}`}
+                              yAxisId={metric.yAxisId}
+                              type="monotone"
+                              name={`${competitorTicker} ${metric.label}`}
+                              dataKey={`${competitorTicker} - ${metric.key}`}
+                              stroke={metric.color}
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              activeDot={{ r: 4 }}
+                            />
+                          );
+                        } else {
+                          // Línea individual estándar
+                          elements.push(
+                            <Line 
+                              key={metric.key}
+                              yAxisId={metric.yAxisId}
+                              type="monotone"
+                              name={metric.label}
+                              dataKey={metric.key}
+                              stroke={metric.color}
+                              strokeWidth={3}
+                              activeDot={{ r: 6 }}
+                            />
+                          );
+                        }
+                        return elements;
+                      })}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              {/* Gráfico 2: Ingresos vs. Beneficios (Estilo Referencia) */}
+              {/* Gráfico 2: Ingresos vs. Beneficios */}
               <div className="chart-card glass">
                 <div className="chart-header">
                   <div className="chart-title-area">
                     <h3 className="chart-title">Ingresos vs. Beneficios</h3>
-                    <span className="chart-subtitle">Comparativa entre facturación bruta y ganancia neta</span>
-                  </div>
-                  <div className="chart-toggles">
-                    <button 
-                      className={`toggle-btn ${timeframe === 'Anual' ? 'active' : ''}`}
-                      onClick={() => setTimeframe('Anual')}
-                    >
-                      Anual
-                    </button>
-                    <button 
-                      className={`toggle-btn ${timeframe === 'Trimestral' ? 'active' : ''}`}
-                      onClick={() => setTimeframe('Trimestral')}
-                    >
-                      Trimestral
-                    </button>
+                    <span className="chart-subtitle">Comparativa entre facturación bruta y ganancia neta ({selectedTicker})</span>
                   </div>
                 </div>
                 
@@ -652,10 +990,20 @@ export default function App() {
             </section>
 
             {/* Tabla de registros históricos completos */}
-            <section className="table-section glass fade-in">
-              <div className="table-header">
-                <h3 className="table-title">Histórico de Estados Financieros y KPIs ({timeframe})</h3>
-                <span className="stock-market">Datos extraídos en formato normalizado</span>
+            <section className="table-section glass fade-in" style={{ marginTop: '1.5rem' }}>
+              <div className="table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 className="table-title">Histórico de Estados Financieros y KPIs ({timeframe})</h3>
+                  <span className="stock-market">Datos extraídos en formato normalizado con alertas de salud</span>
+                </div>
+                <button 
+                  className="toggle-btn"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--color-primary)' }}
+                  onClick={exportToCsv}
+                  title="Descargar datos en formato CSV para Microsoft Excel"
+                >
+                  <Download size={14} /> Exportar Excel (.csv)
+                </button>
               </div>
               
               <div className="table-wrapper">
@@ -677,6 +1025,12 @@ export default function App() {
                   <tbody>
                     {filteredKpis.map((kpi) => {
                       const raw = filteredFinancials.find(f => f.fecha_reporte === kpi.fecha_reporte && f.periodo === kpi.periodo) || {};
+                      
+                      // Alertas visuales
+                      const hasLiquidityAlert = kpi.current_ratio && kpi.current_ratio < 1.0;
+                      const hasLeverageAlert = kpi.debt_to_equity && kpi.debt_to_equity > 2.0;
+                      const hasLossAlert = kpi.margen_neto && kpi.margen_neto < 0;
+
                       return (
                         <tr key={kpi.id}>
                           <td className="table-date">
@@ -689,17 +1043,23 @@ export default function App() {
                             {kpi.periodo}
                           </td>
                           <td className="table-number">{formatCurrency(raw.total_revenue)}</td>
-                          <td className="table-number">{formatCurrency(raw.net_income)}</td>
+                          <td className="table-number" style={{ color: hasLossAlert ? 'var(--color-danger)' : 'inherit' }}>
+                            {formatCurrency(raw.net_income)} {hasLossAlert && <span className="alert-badge">Pérdidas</span>}
+                          </td>
                           <td className="table-number">{formatPercent(kpi.margen_operativo)}</td>
                           <td className="table-number">{formatPercent(kpi.margen_ebitda)}</td>
-                          <td className="table-number" style={{ fontWeight: '700', color: 'var(--color-primary)' }}>
+                          <td className="table-number" style={{ fontWeight: '700', color: hasLossAlert ? 'var(--color-danger)' : 'var(--color-primary)' }}>
                             {formatPercent(kpi.margen_neto)}
                           </td>
                           <td className="table-number" style={{ fontWeight: '600', color: 'var(--color-success)' }}>
                             {formatEps(kpi.eps)}
                           </td>
-                          <td className="table-number">{formatRatio(kpi.current_ratio)}</td>
-                          <td className="table-number">{formatRatio(kpi.debt_to_equity)}</td>
+                          <td className="table-number" style={{ color: hasLiquidityAlert ? 'var(--color-danger)' : 'inherit', fontWeight: hasLiquidityAlert ? '600' : 'normal' }}>
+                            {formatRatio(kpi.current_ratio)} {hasLiquidityAlert && <span className="alert-badge">Riesgo Liquidez</span>}
+                          </td>
+                          <td className="table-number" style={{ color: hasLeverageAlert ? 'var(--color-danger)' : 'inherit', fontWeight: hasLeverageAlert ? '600' : 'normal' }}>
+                            {formatRatio(kpi.debt_to_equity)} {hasLeverageAlert && <span className="alert-badge">Apalancado</span>}
+                          </td>
                         </tr>
                       );
                     })}
