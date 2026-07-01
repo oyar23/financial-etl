@@ -13,6 +13,7 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/create_databases.sql:/docker-entrypoint-initdb.d/create_databases.sql
     networks:
       - finance_network
 
@@ -32,9 +33,68 @@ services:
     networks:
       - finance_network
 
+  airflow-webserver:
+    image: apache/airflow:2.7.2
+    container_name: finance_airflow_webserver
+    restart: always
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres_password@postgres:5432/airflow_db
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+      _PIP_ADDITIONAL_REQUIREMENTS: yfinance pandas sqlalchemy psycopg2-binary python-dotenv
+      DATABASE_URL: postgresql://postgres:postgres_password@postgres:5432/finance_db
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./airflow_dags:/opt/airflow/dags
+      - ./etl:/opt/airflow/etl
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      - postgres
+    networks:
+      - finance_network
+
+  airflow-scheduler:
+    image: apache/airflow:2.7.2
+    container_name: finance_airflow_scheduler
+    restart: always
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres_password@postgres:5432/airflow_db
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      _PIP_ADDITIONAL_REQUIREMENTS: yfinance pandas sqlalchemy psycopg2-binary python-dotenv
+      DATABASE_URL: postgresql://postgres:postgres_password@postgres:5432/finance_db
+    volumes:
+      - ./airflow_dags:/opt/airflow/dags
+      - ./etl:/opt/airflow/etl
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      - postgres
+    networks:
+      - finance_network
+
+  airflow-init:
+    image: apache/airflow:2.7.2
+    container_name: finance_airflow_init
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres_password@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create --username admin --firstname admin --lastname admin --role Admin --email admin@example.com --password admin_password || true
+    depends_on:
+      - postgres
+    networks:
+      - finance_network
+
 volumes:
   postgres_data:
   pgadmin_data:
+  airflow_logs:
 
 networks:
   finance_network:
