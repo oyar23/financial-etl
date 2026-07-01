@@ -10,6 +10,18 @@ import './App.css';
 
 const API_BASE_URL = 'http://localhost:8000';
 
+// Lista de KPIs disponibles para interactuar y graficar
+const ALL_KPI_METRICS = [
+  { key: 'Margen Neto (%)', label: 'Margen Neto', color: 'var(--color-primary)', yAxisId: 'left' },
+  { key: 'Margen Operativo (%)', label: 'Margen Operativo', color: 'var(--color-success)', yAxisId: 'left' },
+  { key: 'Margen EBITDA (%)', label: 'Margen EBITDA', color: 'var(--color-secondary)', yAxisId: 'left' },
+  { key: 'ROE (%)', label: 'ROE', color: '#e879f9', yAxisId: 'left' },
+  { key: 'ROA (%)', label: 'ROA', color: '#22d3ee', yAxisId: 'left' },
+  { key: 'Apalancamiento (x)', label: 'Apalancamiento (D/E)', color: '#f87171', yAxisId: 'right' },
+  { key: 'Liquidez (x)', label: 'Liquidez Corriente', color: '#fbbf24', yAxisId: 'right' },
+  { key: 'EPS ($)', label: 'EPS', color: '#a78bfa', yAxisId: 'right' }
+];
+
 export default function App() {
   const [companies, setCompanies] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState('');
@@ -1176,7 +1188,7 @@ export default function App() {
                       <Bar yAxisId="left" dataKey="Ingresos (MM)" name="Ingresos (Balance)" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
                       <Bar yAxisId="left" dataKey="Beneficios (MM)" name="Beneficio Neto (Balance)" fill="var(--color-secondary)" radius={[4, 4, 0, 0]} />
                       <Line yAxisId="right" type="monotone" dataKey="Precio Acción ($)" name="Precio Acción (Cierre Reporte)" stroke="#fbbf24" strokeWidth={3} activeDot={{ r: 6 }} />
-                      <Line yAxisId="right" type="monotone" dataKey="EPS ($)" name="EPS (Ejes Derecho)" stroke="#a78bfa" strokeWidth={2} activeDot={{ r: 4 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="EPS ($)" name="EPS (Eje Derecho)" stroke="#a78bfa" strokeWidth={2} activeDot={{ r: 4 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
