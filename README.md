@@ -64,6 +64,13 @@ Una vez que las tablas están creadas y las empresas registradas, puedes descarg
     python etl/etl.py
     ```
 
+### 🖥️ Modo Demostración (Despliegues Estáticos / Netlify)
+Si el frontend se despliega de forma independiente en un servidor estático (como Netlify o Vercel) y no se puede conectar a la API de FastAPI (por ejemplo, porque Docker local está apagado):
+*   **Fallback Automático**: El dashboard detectará la desconexión y activará automáticamente el **Modo Demostración**.
+*   **Datos Históricos Incluidos**: Cargarás los datos históricos reales recopilados (Balances, KPIs, desgloses YoY y DuPont) para **AAPL, MSFT, TSLA y AMZN** de forma estática desde `frontend/src/staticData.js`.
+*   **Alerta en Pantalla**: Mostrará una advertencia discreta al usuario invitándolo a correr el proyecto de manera local para habilitar búsquedas dinámicas, sumar empresas personalizadas o ejecutar el pipeline ETL en tiempo real.
+
+
 ---
 
 ## 🔒 Variables de Entorno y Seguridad
