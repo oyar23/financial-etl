@@ -27,15 +27,21 @@ class DatosFinancierosRaw(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     ticker = Column(String(20), ForeignKey('empresas_favoritas.ticker', onupdate='CASCADE', ondelete='CASCADE'), nullable=False)
     fecha_reporte = Column(Date, nullable=False)
+    periodo = Column(String(10), nullable=False, default='FY') # 'FY' para anual, 'Q1'-'Q4' para trimestral
     total_revenue = Column(Numeric(20, 2), nullable=True)
     net_income = Column(Numeric(20, 2), nullable=True)
     total_assets = Column(Numeric(20, 2), nullable=True)
     total_liabilities = Column(Numeric(20, 2), nullable=True)
     total_equity = Column(Numeric(20, 2), nullable=True)
+    diluted_average_shares = Column(Numeric(20, 2), nullable=True)
+    operating_income = Column(Numeric(20, 2), nullable=True)
+    ebitda = Column(Numeric(20, 2), nullable=True)
+    current_assets = Column(Numeric(20, 2), nullable=True)
+    current_liabilities = Column(Numeric(20, 2), nullable=True)
     
-    # Restricción de unicidad para asegurar idempotencia (Upsert)
+    # Restricción de unicidad combinada de 3 columnas para asegurar idempotencia
     __table_args__ = (
-        UniqueConstraint('ticker', 'fecha_reporte', name='uq_raw_ticker_fecha'),
+        UniqueConstraint('ticker', 'fecha_reporte', 'periodo', name='uq_raw_ticker_fecha_periodo'),
     )
     
     # Relación
@@ -50,14 +56,19 @@ class KpisAnaliticos(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     ticker = Column(String(20), ForeignKey('empresas_favoritas.ticker', onupdate='CASCADE', ondelete='CASCADE'), nullable=False)
     fecha_reporte = Column(Date, nullable=False)
+    periodo = Column(String(10), nullable=False, default='FY')
     margen_neto = Column(Numeric(10, 4), nullable=True)
     roe = Column(Numeric(10, 4), nullable=True)
     roa = Column(Numeric(10, 4), nullable=True)
     debt_to_equity = Column(Numeric(10, 4), nullable=True)
+    eps = Column(Numeric(10, 4), nullable=True)
+    current_ratio = Column(Numeric(10, 4), nullable=True)
+    margen_operativo = Column(Numeric(10, 4), nullable=True)
+    margen_ebitda = Column(Numeric(10, 4), nullable=True)
     
-    # Restricción de unicidad para asegurar idempotencia (Upsert)
+    # Restricción de unicidad combinada de 3 columnas para asegurar idempotencia
     __table_args__ = (
-        UniqueConstraint('ticker', 'fecha_reporte', name='uq_kpi_ticker_fecha'),
+        UniqueConstraint('ticker', 'fecha_reporte', 'periodo', name='uq_kpi_ticker_fecha_periodo'),
     )
     
     # Relación

@@ -100,126 +100,225 @@ def run_etl(start_date=None, end_date=None):
                 # Consultar yfinance
                 ticker = yf.Ticker(ticker_symbol)
                 
-                # Obtener Income Statement (financials) y Balance Sheet
-                financials = ticker.financials
-                balance_sheet = ticker.balance_sheet
+                # Definir los conjuntos de datos a extraer: Anual y Trimestral
+                datasets = [
+                    {
+                        "tipo": "Anual",
+                        "financials": ticker.financials,
+                        "balance_sheet": ticker.balance_sheet,
+                        "get_period": lambda d: "FY"
+                    },
+                    {
+                        "tipo": "Trimestral",
+                        "financials": ticker.quarterly_financials,
+                        "balance_sheet": ticker.quarterly_balance_sheet,
+                        "get_period": lambda d: f"Q{(d.month - 1) // 3 + 1}"
+                    }
+                ]
                 
-                if financials.empty or balance_sheet.empty:
-                    print(f"Advertencia: No se obtuvieron datos financieros para {ticker_symbol}. Saltando...")
-                    continue
-                
-                # Iterar sobre las fechas de los reportes en financials
-                for timestamp_col in financials.columns:
-                    # Convertir a datetime.date
-                    if isinstance(timestamp_col, pd.Timestamp):
-                        fecha_rep = timestamp_col.date()
-                    else:
-                        fecha_rep = pd.to_datetime(timestamp_col).date()
+                for ds in datasets:
+                    tipo_ds = ds["tipo"]
+                    financials_df = ds["financials"]
+                    balance_sheet_df = ds["balance_sheet"]
+                    get_period_fn = ds["get_period"]
                     
-                    # Aplicar filtro de rango de fechas si se proporciona
-                    if parsed_start and fecha_rep < parsed_start:
-                        continue
-                    if parsed_end and fecha_rep > parsed_end:
+                    if financials_df is None or financials_df.empty or balance_sheet_df is None or balance_sheet_df.empty:
+                        print(f"  Advertencia: No se obtuvieron datos financieros {tipo_ds} para {ticker_symbol}. Saltando...")
                         continue
                     
-                    print(f"  Procesando reporte con fecha: {fecha_rep}")
+                    print(f"  Procesando datos {tipo_ds} para {ticker_symbol}...")
                     
-                    # 1. Extracción y Normalización de Datos Raw
-                    raw_revenue = get_df_value(financials, 'Total Revenue', timestamp_col)
-                    raw_net_income = get_df_value(financials, 'Net Income', timestamp_col)
-                    raw_assets = get_df_value(balance_sheet, 'Total Assets', timestamp_col)
-                    
-                    # Fallbacks para Liabilities
-                    raw_liabilities = get_df_value(
-                        balance_sheet, 
-                        'Total Liabilities Net Minority Interest', 
-                        timestamp_col,
-                        fallback_labels=['Total Liabilities']
-                    )
-                    
-                    # Fallbacks para Equity
-                    raw_equity = get_df_value(
-                        balance_sheet, 
-                        'Stockholders Equity', 
-                        timestamp_col,
-                        fallback_labels=['Common Stock Equity', 'Total Equity Gross Minority Interest']
-                    )
-                    
-                    # Limpiar y normalizar los números
-                    total_revenue = clean_numeric_value(raw_revenue)
-                    net_income = clean_numeric_value(raw_net_income)
-                    total_assets = clean_numeric_value(raw_assets)
-                    total_liabilities = clean_numeric_value(raw_liabilities)
-                    total_equity = clean_numeric_value(raw_equity)
-                    
-                    # Si faltan datos críticos, imprimir advertencia y continuar
-                    if total_revenue is None and net_income is None:
-                        print(f"    Advertencia: Datos de ingresos vacíos para {ticker_symbol} en {fecha_rep}. Saltando...")
-                        continue
-                    
-                    # 2. Transformación: Cálculo de KPIs
-                    # Margen Neto = Net Income / Total Revenue
-                    margen_neto = None
-                    if net_income is not None and total_revenue and total_revenue != 0:
-                        margen_neto = clean_numeric_value(net_income / total_revenue, decimals=4)
-                    
-                    # ROE = Net Income / Total Equity
-                    roe = None
-                    if net_income is not None and total_equity and total_equity != 0:
-                        roe = clean_numeric_value(net_income / total_equity, decimals=4)
+                    # Iterar sobre las fechas de los reportes en financials
+                    for timestamp_col in financials_df.columns:
+                        # Convertir a datetime.date
+                        if isinstance(timestamp_col, pd.Timestamp):
+                            fecha_rep = timestamp_col.date()
+                        else:
+                            fecha_rep = pd.to_datetime(timestamp_col).date()
                         
-                    # ROA = Net Income / Total Assets
-                    roa = None
-                    if net_income is not None and total_assets and total_assets != 0:
-                        roa = clean_numeric_value(net_income / total_assets, decimals=4)
+                        # Determinar periodo
+                        periodo = get_period_fn(fecha_rep)
                         
-                    # Debt to Equity = Total Liabilities / Total Equity
-                    debt_to_equity = None
-                    if total_liabilities is not None and total_equity and total_equity != 0:
-                        debt_to_equity = clean_numeric_value(total_liabilities / total_equity, decimals=4)
-                    
-                    # 3. Carga: Upsert seguro en Postgres
-                    # A. Inserción de Datos Financieros Raw
-                    stmt_raw = insert(DatosFinancierosRaw).values(
-                        ticker=ticker_symbol,
-                        fecha_reporte=fecha_rep,
-                        total_revenue=total_revenue,
-                        net_income=net_income,
-                        total_assets=total_assets,
-                        total_liabilities=total_liabilities,
-                        total_equity=total_equity
-                    )
-                    stmt_raw_upsert = stmt_raw.on_conflict_do_update(
-                        constraint='uq_raw_ticker_fecha',
-                        set_={
-                            'total_revenue': stmt_raw.excluded.total_revenue,
-                            'net_income': stmt_raw.excluded.net_income,
-                            'total_assets': stmt_raw.excluded.total_assets,
-                            'total_liabilities': stmt_raw.excluded.total_liabilities,
-                            'total_equity': stmt_raw.excluded.total_equity
-                        }
-                    )
-                    db.execute(stmt_raw_upsert)
-                    
-                    # B. Inserción de KPIs Analíticos
-                    stmt_kpis = insert(KpisAnaliticos).values(
-                        ticker=ticker_symbol,
-                        fecha_reporte=fecha_rep,
-                        margen_neto=margen_neto,
-                        roe=roe,
-                        roa=roa,
-                        debt_to_equity=debt_to_equity
-                    )
-                    stmt_kpis_upsert = stmt_kpis.on_conflict_do_update(
-                        constraint='uq_kpi_ticker_fecha',
-                        set_={
-                            'margen_neto': stmt_kpis.excluded.margen_neto,
-                            'roe': stmt_kpis.excluded.roe,
-                            'roa': stmt_kpis.excluded.roa,
-                            'debt_to_equity': stmt_kpis.excluded.debt_to_equity
-                        }
-                    )
-                    db.execute(stmt_kpis_upsert)
+                        # Aplicar filtro de rango de fechas si se proporciona
+                        if parsed_start and fecha_rep < parsed_start:
+                            continue
+                        if parsed_end and fecha_rep > parsed_end:
+                            continue
+                        
+                        print(f"    Reporte: {fecha_rep} | Periodo: {periodo}")
+                        
+                        # 1. Extracción y Normalización de Datos Raw
+                        raw_revenue = get_df_value(financials_df, 'Total Revenue', timestamp_col)
+                        raw_net_income = get_df_value(financials_df, 'Net Income', timestamp_col)
+                        raw_assets = get_df_value(balance_sheet_df, 'Total Assets', timestamp_col)
+                        
+                        raw_liabilities = get_df_value(
+                            balance_sheet_df, 
+                            'Total Liabilities Net Minority Interest', 
+                            timestamp_col,
+                            fallback_labels=['Total Liabilities']
+                        )
+                        
+                        raw_equity = get_df_value(
+                            balance_sheet_df, 
+                            'Stockholders Equity', 
+                            timestamp_col,
+                            fallback_labels=['Common Stock Equity', 'Total Equity Gross Minority Interest']
+                        )
+                        
+                        # Nuevas columnas raw
+                        raw_shares = get_df_value(
+                            financials_df,
+                            'Diluted Average Shares',
+                            timestamp_col,
+                            fallback_labels=['Basic Average Shares', 'Average Shares']
+                        )
+                        
+                        raw_op_income = get_df_value(
+                            financials_df,
+                            'Operating Income',
+                            timestamp_col
+                        )
+                        
+                        raw_ebitda = get_df_value(
+                            financials_df,
+                            'EBITDA',
+                            timestamp_col,
+                            fallback_labels=['Normalized EBITDA']
+                        )
+                        
+                        raw_curr_assets = get_df_value(
+                            balance_sheet_df,
+                            'Current Assets',
+                            timestamp_col
+                        )
+                        
+                        raw_curr_liabilities = get_df_value(
+                            balance_sheet_df,
+                            'Current Liabilities',
+                            timestamp_col
+                        )
+                        
+                        # Limpiar y normalizar los números
+                        total_revenue = clean_numeric_value(raw_revenue)
+                        net_income = clean_numeric_value(raw_net_income)
+                        total_assets = clean_numeric_value(raw_assets)
+                        total_liabilities = clean_numeric_value(raw_liabilities)
+                        total_equity = clean_numeric_value(raw_equity)
+                        
+                        diluted_average_shares = clean_numeric_value(raw_shares)
+                        operating_income = clean_numeric_value(raw_op_income)
+                        ebitda = clean_numeric_value(raw_ebitda)
+                        current_assets = clean_numeric_value(raw_curr_assets)
+                        current_liabilities = clean_numeric_value(raw_curr_liabilities)
+                        
+                        if total_revenue is None and net_income is None:
+                            print(f"      Advertencia: Datos vacíos para {ticker_symbol} en {fecha_rep} ({periodo}). Saltando...")
+                            continue
+                        
+                        # 2. Transformación: Cálculo de KPIs
+                        # Margen Neto
+                        margen_neto = None
+                        if net_income is not None and total_revenue and total_revenue != 0:
+                            margen_neto = clean_numeric_value(net_income / total_revenue, decimals=4)
+                        
+                        # ROE
+                        roe = None
+                        if net_income is not None and total_equity and total_equity != 0:
+                            roe = clean_numeric_value(net_income / total_equity, decimals=4)
+                            
+                        # ROA
+                        roa = None
+                        if net_income is not None and total_assets and total_assets != 0:
+                            roa = clean_numeric_value(net_income / total_assets, decimals=4)
+                            
+                        # Debt to Equity
+                        debt_to_equity = None
+                        if total_liabilities is not None and total_equity and total_equity != 0:
+                            debt_to_equity = clean_numeric_value(total_liabilities / total_equity, decimals=4)
+                            
+                        # EPS = Net Income / Shares
+                        eps = None
+                        if net_income is not None and diluted_average_shares and diluted_average_shares != 0:
+                            eps = clean_numeric_value(net_income / diluted_average_shares, decimals=4)
+                            
+                        # Current Ratio = Current Assets / Current Liabilities
+                        current_ratio = None
+                        if current_assets is not None and current_liabilities and current_liabilities != 0:
+                            current_ratio = clean_numeric_value(current_assets / current_liabilities, decimals=4)
+                            
+                        # Margen Operativo = Operating Income / Total Revenue
+                        margen_operativo = None
+                        if operating_income is not None and total_revenue and total_revenue != 0:
+                            margen_operativo = clean_numeric_value(operating_income / total_revenue, decimals=4)
+                            
+                        # Margen EBITDA = EBITDA / Total Revenue
+                        margen_ebitda = None
+                        if ebitda is not None and total_revenue and total_revenue != 0:
+                            margen_ebitda = clean_numeric_value(ebitda / total_revenue, decimals=4)
+                        
+                        # 3. Carga: Upsert seguro en Postgres
+                        # A. Inserción de Datos Financieros Raw
+                        stmt_raw = insert(DatosFinancierosRaw).values(
+                            ticker=ticker_symbol,
+                            fecha_reporte=fecha_rep,
+                            periodo=periodo,
+                            total_revenue=total_revenue,
+                            net_income=net_income,
+                            total_assets=total_assets,
+                            total_liabilities=total_liabilities,
+                            total_equity=total_equity,
+                            diluted_average_shares=diluted_average_shares,
+                            operating_income=operating_income,
+                            ebitda=ebitda,
+                            current_assets=current_assets,
+                            current_liabilities=current_liabilities
+                        )
+                        stmt_raw_upsert = stmt_raw.on_conflict_do_update(
+                            constraint='uq_raw_ticker_fecha_periodo',
+                            set_={
+                                'total_revenue': stmt_raw.excluded.total_revenue,
+                                'net_income': stmt_raw.excluded.net_income,
+                                'total_assets': stmt_raw.excluded.total_assets,
+                                'total_liabilities': stmt_raw.excluded.total_liabilities,
+                                'total_equity': stmt_raw.excluded.total_equity,
+                                'diluted_average_shares': stmt_raw.excluded.diluted_average_shares,
+                                'operating_income': stmt_raw.excluded.operating_income,
+                                'ebitda': stmt_raw.excluded.ebitda,
+                                'current_assets': stmt_raw.excluded.current_assets,
+                                'current_liabilities': stmt_raw.excluded.current_liabilities
+                            }
+                        )
+                        db.execute(stmt_raw_upsert)
+                        
+                        # B. Inserción de KPIs Analíticos
+                        stmt_kpis = insert(KpisAnaliticos).values(
+                            ticker=ticker_symbol,
+                            fecha_reporte=fecha_rep,
+                            periodo=periodo,
+                            margen_neto=margen_neto,
+                            roe=roe,
+                            roa=roa,
+                            debt_to_equity=debt_to_equity,
+                            eps=eps,
+                            current_ratio=current_ratio,
+                            margen_operativo=margen_operativo,
+                            margen_ebitda=margen_ebitda
+                        )
+                        stmt_kpis_upsert = stmt_kpis.on_conflict_do_update(
+                            constraint='uq_kpi_ticker_fecha_periodo',
+                            set_={
+                                'margen_neto': stmt_kpis.excluded.margen_neto,
+                                'roe': stmt_kpis.excluded.roe,
+                                'roa': stmt_kpis.excluded.roa,
+                                'debt_to_equity': stmt_kpis.excluded.debt_to_equity,
+                                'eps': stmt_kpis.excluded.eps,
+                                'current_ratio': stmt_kpis.excluded.current_ratio,
+                                'margen_operativo': stmt_kpis.excluded.margen_operativo,
+                                'margen_ebitda': stmt_kpis.excluded.margen_ebitda
+                            }
+                        )
+                        db.execute(stmt_kpis_upsert)
                 
                 db.commit()
                 print(f"Datos guardados exitosamente para {ticker_symbol}.")
