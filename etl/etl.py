@@ -10,8 +10,12 @@ import yfinance as yf
 # Agregar el directorio raíz al path para poder importar módulos locales
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from etl.db import SessionLocal
-from etl.models import EmpresaFavorita, DatosFinancierosRaw, KpisAnaliticos
+try:
+    from etl.db import SessionLocal
+    from etl.models import EmpresaFavorita, DatosFinancierosRaw, KpisAnaliticos
+except ModuleNotFoundError:
+    from db import SessionLocal
+    from models import EmpresaFavorita, DatosFinancierosRaw, KpisAnaliticos
 from sqlalchemy.dialects.postgresql import insert
 
 def clean_numeric_value(val, decimals=2):

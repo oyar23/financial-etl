@@ -3,8 +3,12 @@ import os
 # Agregar el directorio raíz al path para poder importar módulos locales
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from etl.db import engine, Base, SessionLocal
-from etl.models import EmpresaFavorita
+try:
+    from etl.db import engine, Base, SessionLocal
+    from etl.models import EmpresaFavorita
+except ModuleNotFoundError:
+    from db import engine, Base, SessionLocal
+    from models import EmpresaFavorita
 from sqlalchemy.dialects.postgresql import insert
 
 def init_db():

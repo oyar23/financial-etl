@@ -1,6 +1,9 @@
 from sqlalchemy import Column, Integer, String, Date, Numeric, Boolean, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
-from .db import Base
+try:
+    from etl.db import Base
+except (ImportError, ModuleNotFoundError):
+    from db import Base
 
 class EmpresaFavorita(Base):
     __tablename__ = 'empresas_favoritas'
