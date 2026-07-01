@@ -18,7 +18,8 @@ def init_db():
     empresas_semilla = [
         {"ticker": "AAPL", "nombre_empresa": "Apple Inc.", "sector": "Tecnología / Electrónica de Consumo", "is_active": True},
         {"ticker": "MSFT", "nombre_empresa": "Microsoft Corporation", "sector": "Tecnología / Software", "is_active": True},
-        {"ticker": "TSLA", "nombre_empresa": "Tesla, Inc.", "sector": "Automotriz / Energía Limpia", "is_active": True}
+        {"ticker": "TSLA", "nombre_empresa": "Tesla, Inc.", "sector": "Automotriz / Energía Limpia", "is_active": True},
+        {"ticker": "AMZN", "nombre_empresa": "Amazon.com, Inc.", "sector": "Consumo Cíclico / Comercio Electrónico", "is_active": True}
     ]
     
     # Insertar o actualizar utilizando Upsert (idempotencia)
