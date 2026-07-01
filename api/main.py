@@ -42,6 +42,9 @@ class EmpresaSchema(BaseModel):
     nombre_empresa: str
     sector: Optional[str]
     is_active: bool
+    precio_actual: Optional[float]
+    cambio_diario: Optional[float]
+    cambio_porcentaje: Optional[float]
 
     class Config:
         from_attributes = True  # Reemplaza a orm_mode=True en Pydantic v2
@@ -64,6 +67,8 @@ class KpiSchema(BaseModel):
     current_ratio: Optional[float]
     margen_operativo: Optional[float]
     margen_ebitda: Optional[float]
+    precio_accion: Optional[float]
+    pe_ratio: Optional[float]
 
     class Config:
         from_attributes = True
@@ -83,6 +88,7 @@ class FinancialsSchema(BaseModel):
     ebitda: Optional[float]
     current_assets: Optional[float]
     current_liabilities: Optional[float]
+    precio_accion: Optional[float]
 
     class Config:
         from_attributes = True

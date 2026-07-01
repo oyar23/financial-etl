@@ -686,3 +686,113 @@
   letter-spacing: 0.03em;
 }
 
+/* DuPont Analysis Layout */
+.dupont-section {
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.dupont-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dupont-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.dupont-equation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: rgba(255, 255, 255, 0.01);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.dupont-factor {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1rem;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  transition: var(--transition);
+}
+
+.dupont-factor:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-color-hover);
+}
+
+.dupont-factor.roe {
+  background-color: rgba(16, 185, 129, 0.05);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.dupont-factor.roe .factor-value {
+  color: var(--color-success);
+}
+
+.factor-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.factor-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 0.25rem;
+}
+
+.factor-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.equation-symbol {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* YoY Variation Badge */
+.yoy-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+  width: fit-content;
+}
+
+.yoy-badge.positive {
+  background-color: rgba(16, 185, 129, 0.1);
+  color: var(--color-success);
+}
+
+.yoy-badge.negative {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-danger);
+}

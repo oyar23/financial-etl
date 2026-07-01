@@ -13,6 +13,9 @@ class EmpresaFavorita(Base):
     nombre_empresa = Column(String(100), nullable=False)
     sector = Column(String(100), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    precio_actual = Column(Numeric(10, 2), nullable=True)
+    cambio_diario = Column(Numeric(10, 2), nullable=True)
+    cambio_porcentaje = Column(Numeric(10, 2), nullable=True)
     
     # Relaciones
     datos_raw = relationship("DatosFinancierosRaw", back_populates="empresa", cascade="all, delete-orphan")
@@ -38,6 +41,7 @@ class DatosFinancierosRaw(Base):
     ebitda = Column(Numeric(20, 2), nullable=True)
     current_assets = Column(Numeric(20, 2), nullable=True)
     current_liabilities = Column(Numeric(20, 2), nullable=True)
+    precio_accion = Column(Numeric(10, 2), nullable=True) # Precio histórico al día del reporte
     
     # Restricción de unicidad combinada de 3 columnas para asegurar idempotencia
     __table_args__ = (
@@ -65,6 +69,8 @@ class KpisAnaliticos(Base):
     current_ratio = Column(Numeric(10, 4), nullable=True)
     margen_operativo = Column(Numeric(10, 4), nullable=True)
     margen_ebitda = Column(Numeric(10, 4), nullable=True)
+    precio_accion = Column(Numeric(10, 2), nullable=True)
+    pe_ratio = Column(Numeric(10, 2), nullable=True)
     
     # Restricción de unicidad combinada de 3 columnas para asegurar idempotencia
     __table_args__ = (

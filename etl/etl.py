@@ -100,6 +100,32 @@ def run_etl(start_date=None, end_date=None):
                 # Consultar yfinance
                 ticker = yf.Ticker(ticker_symbol)
                 
+                # 1. Obtener precio actual y variaciones del ticker en tiempo real
+                try:
+                    info = ticker.info
+                    precio_actual = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose')
+                    cambio_diario = info.get('regularMarketChange')
+                    cambio_porcentaje = info.get('regularMarketChangePercent')
+                    
+                    empresa.precio_actual = clean_numeric_value(precio_actual)
+                    empresa.cambio_diario = clean_numeric_value(cambio_diario)
+                    empresa.cambio_porcentaje = clean_numeric_value(cambio_porcentaje)
+                    db.add(empresa)
+                    db.flush()
+                    print(f"  Cotización en vivo cargada: ${precio_actual} ({cambio_porcentaje}%)")
+                except Exception as e:
+                    print(f"  Advertencia: No se pudieron obtener cotizaciones en tiempo real para {ticker_symbol}: {e}")
+
+                # 2. Obtener historial de precios para backfill (últimos 5 años)
+                hist_prices = None
+                try:
+                    hist_df = ticker.history(period="5y")
+                    if not hist_df.empty:
+                        hist_prices = hist_df['Close']
+                        print(f"  Historial de precios cargado ({len(hist_prices)} registros diarios).")
+                except Exception as e:
+                    print(f"  Advertencia: No se pudo obtener el historial de cotizaciones para {ticker_symbol}: {e}")
+
                 # Definir los conjuntos de datos a extraer: Anual y Trimestral
                 datasets = [
                     {
@@ -147,6 +173,18 @@ def run_etl(start_date=None, end_date=None):
                         
                         print(f"    Reporte: {fecha_rep} | Periodo: {periodo}")
                         
+                        # Alinear el precio de cierre de la acción al día del reporte
+                        precio_accion = None
+                        if hist_prices is not None and not hist_prices.empty:
+                            try:
+                                # Encontrar la fecha más cercana disponible en el índice de precios
+                                report_datetime = pd.to_datetime(fecha_rep).tz_localize(hist_prices.index.tz)
+                                idx = hist_prices.index.get_indexer([report_datetime], method='nearest')[0]
+                                if idx != -1:
+                                    precio_accion = clean_numeric_value(hist_prices.iloc[idx])
+                            except Exception as e:
+                                print(f"      No se pudo alinear el precio de la acción para la fecha {fecha_rep}: {e}")
+
                         # 1. Extracción y Normalización de Datos Raw
                         raw_revenue = get_df_value(financials_df, 'Total Revenue', timestamp_col)
                         raw_net_income = get_df_value(financials_df, 'Net Income', timestamp_col)
@@ -166,7 +204,6 @@ def run_etl(start_date=None, end_date=None):
                             fallback_labels=['Common Stock Equity', 'Total Equity Gross Minority Interest']
                         )
                         
-                        # Nuevas columnas raw
                         raw_shares = get_df_value(
                             financials_df,
                             'Diluted Average Shares',
@@ -237,25 +274,30 @@ def run_etl(start_date=None, end_date=None):
                         if total_liabilities is not None and total_equity and total_equity != 0:
                             debt_to_equity = clean_numeric_value(total_liabilities / total_equity, decimals=4)
                             
-                        # EPS = Net Income / Shares
+                        # EPS
                         eps = None
                         if net_income is not None and diluted_average_shares and diluted_average_shares != 0:
                             eps = clean_numeric_value(net_income / diluted_average_shares, decimals=4)
                             
-                        # Current Ratio = Current Assets / Current Liabilities
+                        # Current Ratio
                         current_ratio = None
                         if current_assets is not None and current_liabilities and current_liabilities != 0:
                             current_ratio = clean_numeric_value(current_assets / current_liabilities, decimals=4)
                             
-                        # Margen Operativo = Operating Income / Total Revenue
+                        # Margen Operativo
                         margen_operativo = None
                         if operating_income is not None and total_revenue and total_revenue != 0:
                             margen_operativo = clean_numeric_value(operating_income / total_revenue, decimals=4)
                             
-                        # Margen EBITDA = EBITDA / Total Revenue
+                        # Margen EBITDA
                         margen_ebitda = None
                         if ebitda is not None and total_revenue and total_revenue != 0:
                             margen_ebitda = clean_numeric_value(ebitda / total_revenue, decimals=4)
+                            
+                        # P/E Ratio histórico al reporte
+                        pe_ratio = None
+                        if eps is not None and eps > 0 and precio_accion is not None:
+                            pe_ratio = clean_numeric_value(precio_accion / eps, decimals=2)
                         
                         # 3. Carga: Upsert seguro en Postgres
                         # A. Inserción de Datos Financieros Raw
@@ -272,7 +314,8 @@ def run_etl(start_date=None, end_date=None):
                             operating_income=operating_income,
                             ebitda=ebitda,
                             current_assets=current_assets,
-                            current_liabilities=current_liabilities
+                            current_liabilities=current_liabilities,
+                            precio_accion=precio_accion
                         )
                         stmt_raw_upsert = stmt_raw.on_conflict_do_update(
                             constraint='uq_raw_ticker_fecha_periodo',
@@ -286,7 +329,8 @@ def run_etl(start_date=None, end_date=None):
                                 'operating_income': stmt_raw.excluded.operating_income,
                                 'ebitda': stmt_raw.excluded.ebitda,
                                 'current_assets': stmt_raw.excluded.current_assets,
-                                'current_liabilities': stmt_raw.excluded.current_liabilities
+                                'current_liabilities': stmt_raw.excluded.current_liabilities,
+                                'precio_accion': stmt_raw.excluded.precio_accion
                             }
                         )
                         db.execute(stmt_raw_upsert)
@@ -303,7 +347,9 @@ def run_etl(start_date=None, end_date=None):
                             eps=eps,
                             current_ratio=current_ratio,
                             margen_operativo=margen_operativo,
-                            margen_ebitda=margen_ebitda
+                            margen_ebitda=margen_ebitda,
+                            precio_accion=precio_accion,
+                            pe_ratio=pe_ratio
                         )
                         stmt_kpis_upsert = stmt_kpis.on_conflict_do_update(
                             constraint='uq_kpi_ticker_fecha_periodo',
@@ -315,7 +361,9 @@ def run_etl(start_date=None, end_date=None):
                                 'eps': stmt_kpis.excluded.eps,
                                 'current_ratio': stmt_kpis.excluded.current_ratio,
                                 'margen_operativo': stmt_kpis.excluded.margen_operativo,
-                                'margen_ebitda': stmt_kpis.excluded.margen_ebitda
+                                'margen_ebitda': stmt_kpis.excluded.margen_ebitda,
+                                'precio_accion': stmt_kpis.excluded.precio_accion,
+                                'pe_ratio': stmt_kpis.excluded.pe_ratio
                             }
                         )
                         db.execute(stmt_kpis_upsert)

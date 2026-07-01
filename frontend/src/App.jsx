@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line
+  LineChart, Line, ComposedChart
 } from 'recharts';
 import { 
   Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw, Trash2, Download
@@ -9,28 +9,6 @@ import {
 import './App.css';
 
 const API_BASE_URL = 'http://localhost:8000';
-
-// Mock de cotizaciones para coincidir con la estética del diseño de referencia
-const MOCK_STOCK_PRICES = {
-  AAPL: { price: '189.84', change: '+2.43', pct: '+1.30', status: 'positive' },
-  MSFT: { price: '421.90', change: '+5.12', pct: '+1.23', status: 'positive' },
-  TSLA: { price: '177.46', change: '-3.82', pct: '-2.11', status: 'negative' },
-  AMZN: { price: '185.50', change: '+4.20', pct: '+2.32', status: 'positive' },
-  META: { price: '475.20', change: '+12.40', pct: '+2.68', status: 'positive' },
-  GOOGL: { price: '173.50', change: '+1.80', pct: '+1.05', status: 'positive' }
-};
-
-// Lista de KPIs disponibles para interactuar y graficar
-const ALL_KPI_METRICS = [
-  { key: 'Margen Neto (%)', label: 'Margen Neto', color: 'var(--color-primary)', yAxisId: 'left' },
-  { key: 'Margen Operativo (%)', label: 'Margen Operativo', color: 'var(--color-success)', yAxisId: 'left' },
-  { key: 'Margen EBITDA (%)', label: 'Margen EBITDA', color: 'var(--color-secondary)', yAxisId: 'left' },
-  { key: 'ROE (%)', label: 'ROE', color: '#e879f9', yAxisId: 'left' },
-  { key: 'ROA (%)', label: 'ROA', color: '#22d3ee', yAxisId: 'left' },
-  { key: 'Apalancamiento (x)', label: 'Apalancamiento (D/E)', color: '#f87171', yAxisId: 'right' },
-  { key: 'Liquidez (x)', label: 'Liquidez Corriente', color: '#fbbf24', yAxisId: 'right' },
-  { key: 'EPS ($)', label: 'EPS', color: '#a78bfa', yAxisId: 'right' }
-];
 
 export default function App() {
   const [companies, setCompanies] = useState([]);
@@ -49,11 +27,17 @@ export default function App() {
   const [timeframe, setTimeframe] = useState('Anual'); // 'Anual' o 'Trimestral'
   const [timeRangeActive, setTimeRangeActive] = useState('MAX'); // '1A', '3A', '5A', 'MAX'
   
-  // KPIs que el usuario desea ver en el gráfico de líneas
-  const [visibleKpis, setVisibleKpis] = useState([
+  // KPIs visibles para el gráfico de rentabilidad sectorizado
+  const [visibleRentabilidad, setVisibleRentabilidad] = useState([
     'Margen Neto (%)', 
     'Margen Operativo (%)', 
     'Margen EBITDA (%)'
+  ]);
+  
+  // KPIs visibles para el gráfico de solvencia sectorizado
+  const [visibleSolvencia, setVisibleSolvencia] = useState([
+    'Liquidez (x)', 
+    'Apalancamiento (x)'
   ]);
   
   // Filtros de fecha (Años)
@@ -190,7 +174,6 @@ export default function App() {
   // Manejar cambio de empresa principal
   const handleCompanyChange = (e) => {
     setSelectedTicker(e.target.value);
-    // Si la empresa principal coincide con el competidor, limpiar competidor
     if (e.target.value === competitorTicker) {
       setCompetitorTicker('');
     }
@@ -366,57 +349,19 @@ export default function App() {
   const filteredCompFinancials = filterByYearRange(competitorFinancials);
   const filteredCompKpis = filterByYearRange(competitorKpis);
 
-  // Obtener información de empresa actual
+  // Obtener información de empresa actual (incluyendo precios en tiempo real reales de yfinance)
   const currentCompany = companies.find(c => c.ticker === selectedTicker) || {
     ticker: selectedTicker || 'Ninguna',
     nombre_empresa: selectedTicker ? selectedTicker : 'No hay empresas registradas',
-    sector: 'N/A'
+    sector: 'N/A',
+    precio_actual: 0.00,
+    cambio_diario: 0.00,
+    cambio_porcentaje: 0.00
   };
 
   // KPIs del último reporte
   const latestKpi = filteredKpis[0] || {};
-  const mockPrice = MOCK_STOCK_PRICES[selectedTicker] || { price: '0.00', change: '+0.00', pct: '+0.00', status: 'positive' };
-
-  // Calcular P/B Ratio usando Patrimonio y Acciones Diluidas
   const rawForLatest = filteredFinancials.find(f => f.fecha_reporte === latestKpi.fecha_reporte && f.periodo === latestKpi.periodo) || {};
-  const bookValuePerShare = rawForLatest.total_equity && rawForLatest.diluted_average_shares && rawForLatest.diluted_average_shares > 0 
-    ? rawForLatest.total_equity / rawForLatest.diluted_average_shares 
-    : null;
-  const pbRatioStr = bookValuePerShare && bookValuePerShare > 0 
-    ? `${(mockPrice.price / bookValuePerShare).toFixed(2)}x` 
-    : 'N/A';
-
-  // Calcular Salud Financiera (Health Score)
-  const calculateHealthScore = (kpi) => {
-    if (!kpi || Object.keys(kpi).length === 0) return { score: 0, status: 'N/A', color: 'var(--text-muted)' };
-    let score = 0;
-    if (kpi.roa > 0.05) score += 2;
-    else if (kpi.roa > 0) score += 1;
-    
-    if (kpi.current_ratio > 1.5) score += 2;
-    else if (kpi.current_ratio > 1.0) score += 1;
-    
-    if (kpi.debt_to_equity < 1.0) score += 2;
-    else if (kpi.debt_to_equity < 2.0) score += 1;
-    
-    if (kpi.margen_neto > 0.10) score += 2;
-    else if (kpi.margen_neto > 0) score += 1;
-    
-    if (kpi.eps > 0) score += 2;
-    
-    let status = 'Riesgo Financiero';
-    let color = 'var(--color-danger)';
-    if (score >= 8) {
-      status = 'Zona Segura (Fuerte)';
-      color = 'var(--color-success)';
-    } else if (score >= 5) {
-      status = 'Zona de Prudencia';
-      color = 'var(--color-secondary)';
-    }
-    return { score, status, color };
-  };
-
-  const health = calculateHealthScore(latestKpi);
 
   // Formateadores didácticos
   const formatCurrency = (value) => {
@@ -439,6 +384,83 @@ export default function App() {
     if (value === null || value === undefined) return 'N/A';
     return `$${value.toFixed(2)}`;
   };
+
+  // Lógica para obtener variación interanual (YoY)
+  const getYoYVariation = (kpiList, currentIndex, key) => {
+    if (!kpiList || kpiList.length === 0) return null;
+    const step = timeframe === 'Anual' ? 1 : 4; // 1 año atrás es 1 registro en Anual, o 4 trimestres atrás en Q
+    const prevIndex = currentIndex + step;
+    if (prevIndex >= kpiList.length) return null;
+    
+    const currentVal = kpiList[currentIndex][key];
+    const prevVal = kpiList[prevIndex][key];
+    
+    if (currentVal === null || currentVal === undefined || prevVal === null || prevVal === undefined || prevVal === 0) {
+      return null;
+    }
+    
+    const isPercent = key.includes('margen') || key === 'roe' || key === 'roa';
+    if (isPercent) {
+      const diff = (currentVal - prevVal) * 100;
+      return {
+        val: diff,
+        text: `${diff >= 0 ? '▲' : '▼'} ${diff >= 0 ? '+' : ''}${diff.toFixed(2)} pp YoY`,
+        status: diff >= 0 ? 'positive' : 'negative'
+      };
+    } else {
+      const pct = ((currentVal - prevVal) / Math.abs(prevVal)) * 100;
+      return {
+        val: pct,
+        text: `${pct >= 0 ? '▲' : '▼'} ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% YoY`,
+        status: pct >= 0 ? 'positive' : 'negative'
+      };
+    }
+  };
+
+  const yoyMargenNeto = getYoYVariation(filteredKpis, 0, 'margen_neto');
+  const yoyMargenOperativo = getYoYVariation(filteredKpis, 0, 'margen_operativo');
+  const yoyCurrentRatio = getYoYVariation(filteredKpis, 0, 'current_ratio');
+  const yoyEps = getYoYVariation(filteredKpis, 0, 'eps');
+
+  // Calcular P/B Ratio
+  const bookValuePerShare = rawForLatest.total_equity && rawForLatest.diluted_average_shares && rawForLatest.diluted_average_shares > 0 
+    ? rawForLatest.total_equity / rawForLatest.diluted_average_shares 
+    : null;
+  const pbRatio = bookValuePerShare && bookValuePerShare > 0 && currentCompany.precio_actual
+    ? currentCompany.precio_actual / bookValuePerShare
+    : null;
+
+  // Calcular Salud Financiera (Health Score)
+  const calculateHealthScore = (kpi) => {
+    if (!kpi || Object.keys(kpi).length === 0) return { score: 0, status: 'N/A', color: 'var(--text-muted)' };
+    let score = 0;
+    if (kpi.roa > 0.05) score += 2;
+    else if (kpi.roa > 0) score += 1;
+    
+    if (kpi.current_ratio > 1.5) score += 2;
+    else if (kpi.current_ratio > 1.0) score += 1;
+    
+    if (kpi.debt_to_equity < 1.0) score += 2;
+    else if (kpi.debt_to_equity < 2.0) score += 1;
+    
+    if (kpi.margen_neto > 0.10) score += 2;
+    else if (kpi.margen_neto > 0) score += 1;
+    
+    if (kpi.eps > 0) score += 2;
+    
+    let status = 'Riesgo Financiero';
+    let color = 'var(--color-danger)';
+    if (score >= 8) {
+      status = 'Zona Segura';
+      color = 'var(--color-success)';
+    } else if (score >= 5) {
+      status = 'Zona de Prudencia';
+      color = 'var(--color-secondary)';
+    }
+    return { score, status, color };
+  };
+
+  const health = calculateHealthScore(latestKpi);
 
   // Mapear datos cronológicos del principal
   const mappedPrimaryKpis = [...filteredKpis].reverse().map(item => ({
@@ -468,20 +490,20 @@ export default function App() {
     'EPS ($)': item.eps ? Math.round(item.eps * 100) / 100 : 0,
   }));
 
-  // Combinar datos primarios y competidor para el LineChart (Benchmarking)
+  // Combinar datos primarios, competidor y precios históricos reales del reporte
   const combinedKpisData = mappedPrimaryKpis.map(primaryItem => {
     const competitorItem = mappedCompetitorKpis.find(c => c.periodoLabel === primaryItem.periodoLabel);
     const combined = { ...primaryItem };
     
-    // Inyectar datos crudos para el Tooltip enriquecido
+    // Inyectar datos crudos para Tooltip enriquecido
     const primaryRaw = filteredFinancials.find(f => f.fecha_reporte === primaryItem.fecha_reporte && f.periodo === primaryItem.periodo) || {};
     combined.raw_net_income = primaryRaw.net_income;
     combined.raw_total_revenue = primaryRaw.total_revenue;
     combined.raw_operating_income = primaryRaw.operating_income;
     combined.raw_ebitda = primaryRaw.ebitda;
+    combined.precio_accion_hist = primaryRaw.precio_accion;
 
     ALL_KPI_METRICS.forEach(metric => {
-      // Clave unívoca primaria
       combined[`${selectedTicker} - ${metric.key}`] = primaryItem[metric.key];
       if (competitorItem) {
         combined[`${competitorTicker} - ${metric.key}`] = competitorItem[metric.key];
@@ -496,9 +518,17 @@ export default function App() {
     periodoLabel: item.periodo === 'FY' ? item.fecha_reporte.split('-')[0] : `${item.fecha_reporte.split('-')[0]} ${item.periodo}`,
     'Ingresos (MM)': item.total_revenue ? item.total_revenue / 1_000_000_000 : 0,
     'Beneficios (MM)': item.net_income ? item.net_income / 1_000_000_000 : 0,
+    'Precio Acción ($)': item.precio_accion || 0,
+    'EPS ($)': item.eps || 0
   }));
 
-  // Componente de Tooltip Enriquecido
+  // DuPont calculations en vivo
+  const duPontMargen = latestKpi.margen_neto || 0;
+  const duPontRotacion = rawForLatest.total_revenue && rawForLatest.total_assets ? rawForLatest.total_revenue / rawForLatest.total_assets : 0;
+  const duPontApalancamiento = rawForLatest.total_assets && rawForLatest.total_equity ? rawForLatest.total_assets / rawForLatest.total_equity : 0;
+  const duPontRoe = duPontMargen * duPontRotacion * duPontApalancamiento;
+
+  // Tooltip Enriquecido
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
       return (
@@ -508,7 +538,6 @@ export default function App() {
             {payload.map((item, idx) => {
               const rawObj = item.payload;
               const isPercent = item.name.includes('%') || item.dataKey.includes('%');
-              const isRatio = item.name.includes('(x)') || item.dataKey.includes('(x)');
               const isEps = item.name.includes('$') || item.dataKey.includes('$');
               
               let valueStr = '';
@@ -516,15 +545,14 @@ export default function App() {
               else if (isEps) valueStr = `$${item.value.toFixed(2)}`;
               else valueStr = item.value.toFixed(2);
               
-              // Desglose de fórmula en vivo usando datos raw
               let breakdownStr = '';
               if (!competitorTicker) {
                 if (item.dataKey.includes('Margen Neto') && rawObj.raw_net_income && rawObj.raw_total_revenue) {
-                  breakdownStr = ` (Net: ${formatCurrency(rawObj.raw_net_income)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                  breakdownStr = ` (Neto: ${formatCurrency(rawObj.raw_net_income)} / Ingresos: ${formatCurrency(rawObj.raw_total_revenue)})`;
                 } else if (item.dataKey.includes('Margen Operativo') && rawObj.raw_operating_income && rawObj.raw_total_revenue) {
-                  breakdownStr = ` (Op: ${formatCurrency(rawObj.raw_operating_income)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                  breakdownStr = ` (Oper: ${formatCurrency(rawObj.raw_operating_income)} / Ingresos: ${formatCurrency(rawObj.raw_total_revenue)})`;
                 } else if (item.dataKey.includes('Margen EBITDA') && rawObj.raw_ebitda && rawObj.raw_total_revenue) {
-                  breakdownStr = ` (EBITDA: ${formatCurrency(rawObj.raw_ebitda)} / Rev: ${formatCurrency(rawObj.raw_total_revenue)})`;
+                  breakdownStr = ` (EBITDA: ${formatCurrency(rawObj.raw_ebitda)} / Ingresos: ${formatCurrency(rawObj.raw_total_revenue)})`;
                 }
               }
               
@@ -643,7 +671,6 @@ export default function App() {
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                   onClick={triggerETL}
                   disabled={refreshingETL}
-                  title="Ejecutar ETL para descargar nuevos datos"
                 >
                   <RefreshCw size={16} className={refreshingETL ? 'spin' : ''} /> Correr ETL
                 </button>
@@ -652,7 +679,6 @@ export default function App() {
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
                   onClick={handleDeleteCompany}
                   disabled={!selectedTicker}
-                  title="Eliminar esta empresa de la base de datos"
                 >
                   <Trash2 size={16} /> Eliminar
                 </button>
@@ -676,7 +702,7 @@ export default function App() {
         {companies.length === 0 ? (
           <div className="empty-state-screen glass fade-in">
             <AlertTriangle size={48} className="kpi-icon" style={{ color: 'var(--color-secondary)' }} />
-            <h2>No hay empresas registradas</h2>
+            <h2>No hay empresas favoritas registradas</h2>
             <p>Comienza agregando tu primera empresa de Yahoo Finance haciendo clic en el botón superior.</p>
             <button 
               className="toggle-btn active" 
@@ -693,7 +719,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            {/* Banner de Cotización */}
+            {/* Banner de Cotización Real (Extraído de yfinance) */}
             <section className="stock-banner fade-in">
               <div className="stock-banner-info">
                 <div className="stock-title-area">
@@ -708,7 +734,9 @@ export default function App() {
                       <Star size={24} fill={isFavorite ? "var(--color-secondary)" : "none"} />
                     </button>
                   </div>
-                  <span className="stock-market">Sector: {currentCompany.sector || 'N/A'}</span>
+                  <span className="stock-market">
+                    Sector: {currentCompany.sector || 'N/A'} | Último Reporte: {latestKpi.fecha_reporte} ({latestKpi.periodo})
+                  </span>
                 </div>
                 
                 {/* Granularidad y Ejes temporales integrados */}
@@ -758,52 +786,81 @@ export default function App() {
 
                 <div className="stock-price-area">
                   <div className="stock-price-row">
-                    <span className="stock-price">${mockPrice.price}</span>
-                    <span className={`stock-change ${mockPrice.status}`}>
-                      {mockPrice.change} ({mockPrice.pct}%)
+                    <span className="stock-price">
+                      ${currentCompany.precio_actual ? currentCompany.precio_actual.toFixed(2) : '0.00'}
+                    </span>
+                    <span className={`stock-change ${currentCompany.cambio_diario >= 0 ? 'positive' : 'negative'}`}>
+                      {currentCompany.cambio_diario >= 0 ? '+' : ''}{currentCompany.cambio_diario ? currentCompany.cambio_diario.toFixed(2) : '0.00'} 
+                      ({currentCompany.cambio_porcentaje ? currentCompany.cambio_porcentaje.toFixed(2) : '0.00'}%)
                     </span>
                   </div>
-                  <span className="stock-time">A partir de las 14:13:44 GMT-4. Mercado abierto en tiempo real.</span>
+                  <span className="stock-time">Cotización del último cierre en yfinance. Actualizado en BD.</span>
                 </div>
               </div>
             </section>
 
-            {/* Grid de KPIs principales de Rendimiento */}
+            {/* Grid de KPIs principales con Variación YoY */}
             <section className="kpi-grid fade-in">
+              {/* Margen Neto */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Margen Neto</span>
                   <Percent className="kpi-icon" size={20} />
                 </div>
                 <span className="kpi-card-value">{formatPercent(latestKpi.margen_neto)}</span>
-                <span className="kpi-card-desc">Conversión de ingresos a beneficio neto ({latestKpi.periodo} {latestKpi.fecha_reporte?.split('-')[0] || ''})</span>
+                <span className="kpi-card-desc">
+                  Conversión a beneficio neto
+                </span>
+                {yoyMargenNeto && (
+                  <span className={`yoy-badge ${yoyMargenNeto.status}`}>
+                    {yoyMargenNeto.text}
+                  </span>
+                )}
               </div>
 
+              {/* Margen Operativo */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Margen Operativo</span>
                   <Activity className="kpi-icon" size={20} />
                 </div>
                 <span className="kpi-card-value">{formatPercent(latestKpi.margen_operativo)}</span>
-                <span className="kpi-card-desc">Margen de ganancias antes de impuestos y finanzas</span>
+                <span className="kpi-card-desc">Beneficio operativo / ingresos</span>
+                {yoyMargenOperativo && (
+                  <span className={`yoy-badge ${yoyMargenOperativo.status}`}>
+                    {yoyMargenOperativo.text}
+                  </span>
+                )}
               </div>
 
+              {/* Current Ratio */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
                   <span className="kpi-card-title">Liquidez Corriente</span>
                   <TrendingUp className="kpi-icon" size={20} />
                 </div>
                 <span className="kpi-card-value">{formatRatio(latestKpi.current_ratio)}</span>
-                <span className="kpi-card-desc">Ratio Activo Corriente / Pasivo Corriente (ideal &gt; 1.0)</span>
+                <span className="kpi-card-desc">Activo corriente / Pasivo corriente</span>
+                {yoyCurrentRatio && (
+                  <span className={`yoy-badge ${yoyCurrentRatio.status}`}>
+                    {yoyCurrentRatio.text}
+                  </span>
+                )}
               </div>
 
+              {/* Beneficios Por Acción (EPS) */}
               <div className="kpi-card glass">
                 <div className="kpi-card-header">
-                  <span className="kpi-card-title">Beneficio por Acción (EPS)</span>
+                  <span className="kpi-card-title">Ganancia por Acción (EPS)</span>
                   <DollarSign className="kpi-icon" size={20} />
                 </div>
                 <span className="kpi-card-value">{formatEps(latestKpi.eps)}</span>
-                <span className="kpi-card-desc">Ganancia neta diluida por cada acción en circulación</span>
+                <span className="kpi-card-desc">Beneficio neto por acción</span>
+                {yoyEps && (
+                  <span className={`yoy-badge ${yoyEps.status}`}>
+                    {yoyEps.text}
+                  </span>
+                )}
               </div>
             </section>
 
@@ -816,9 +873,13 @@ export default function App() {
                   <TrendingUp className="kpi-icon" size={20} />
                 </div>
                 <span className="kpi-card-value">
-                  {latestKpi.eps && latestKpi.eps > 0 ? `${(mockPrice.price / latestKpi.eps).toFixed(2)}x` : 'N/A'}
+                  {latestKpi.eps && latestKpi.eps > 0 && currentCompany.precio_actual 
+                    ? `${(currentCompany.precio_actual / latestKpi.eps).toFixed(2)}x` 
+                    : 'N/A'}
                 </span>
-                <span className="kpi-card-desc">Relación precio acción / beneficio neto. Precio: ${mockPrice.price}</span>
+                <span className="kpi-card-desc">
+                  Calculado usando la cotización actual (${currentCompany.precio_actual?.toFixed(2) || '0.00'})
+                </span>
               </div>
 
               {/* P/B Ratio */}
@@ -827,14 +888,16 @@ export default function App() {
                   <span className="kpi-card-title">P/B Ratio (Precio/Libro)</span>
                   <Activity className="kpi-icon" size={20} />
                 </div>
-                <span className="kpi-card-value">{pbRatioStr}</span>
-                <span className="kpi-card-desc">Relación precio acción / valor en libros de la empresa</span>
+                <span className="kpi-card-value">
+                  {pbRatio ? `${pbRatio.toFixed(2)}x` : 'N/A'}
+                </span>
+                <span className="kpi-card-desc">Cotización actual vs valor contable del reporte</span>
               </div>
 
               {/* Solvencia (Health Score) */}
               <div className="kpi-card glass" style={{ borderLeft: `4px solid ${health.color}` }}>
                 <div className="kpi-card-header">
-                  <span className="kpi-card-title">Puntaje de Solvencia (Health Score)</span>
+                  <span className="kpi-card-title">Puntaje de Solvencia (Z-Score)</span>
                   <AlertTriangle className="kpi-icon" size={20} style={{ color: health.color }} />
                 </div>
                 <span className="kpi-card-value" style={{ color: health.color }}>{health.score}/10</span>
@@ -844,41 +907,72 @@ export default function App() {
               </div>
             </section>
 
-            {/* Grid de Gráficos */}
+            {/* Análisis DuPont Widget */}
+            <section className="dupont-section glass fade-in" style={{ marginTop: '1.5rem' }}>
+              <div className="dupont-header">
+                <h3 className="dupont-title">Desglose de Rentabilidad DuPont (ROE Anualizado)</h3>
+                <span className="stock-market">Explica qué impulsa el retorno sobre el capital del último periodo</span>
+              </div>
+              <div className="dupont-equation">
+                <div className="dupont-factor roe">
+                  <span className="factor-label">ROE (Retorno sobre Capital)</span>
+                  <span className="factor-value">{formatPercent(latestKpi.roe || duPontRoe)}</span>
+                </div>
+                <span className="equation-symbol">=</span>
+                <div className="dupont-factor efficiency">
+                  <span className="factor-label">Margen Neto (Eficiencia Operativa)</span>
+                  <span className="factor-value">{formatPercent(duPontMargen)}</span>
+                  <span className="factor-desc">Beneficio Neto / Ingresos</span>
+                </div>
+                <span className="equation-symbol">×</span>
+                <div className="dupont-factor turnover">
+                  <span className="factor-label">Rotación de Activos (Eficiencia de Uso)</span>
+                  <span className="factor-value">{duPontRotacion.toFixed(2)}x</span>
+                  <span className="factor-desc">Ingresos / Activos Totales</span>
+                </div>
+                <span className="equation-symbol">×</span>
+                <div className="dupont-factor leverage">
+                  <span className="factor-label">Multiplicador de Capital (Apalancamiento)</span>
+                  <span className="factor-value">{duPontApalancamiento.toFixed(2)}x</span>
+                  <span className="factor-desc">Activos Totales / Patrimonio</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Grid de Gráficos Sectorizados */}
             <section className="charts-grid fade-in" style={{ marginTop: '1.5rem' }}>
               
-              {/* Gráfico 1: Análisis Interactivo de KPIs (Ejes Y Múltiples) */}
+              {/* Gráfico 1: Rentabilidad (%) */}
               <div className="chart-card glass">
-                <div className="chart-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
+                <div className="chart-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
                   <div className="chart-title-area">
-                    <h3 className="chart-title">Análisis de KPIs Interactivo</h3>
+                    <h3 className="chart-title">Gráfico de Rentabilidad (%)</h3>
                     <span className="chart-subtitle">
                       {competitorTicker 
-                        ? `Comparando ${selectedTicker} (Línea Continua) vs ${competitorTicker} (Línea Discontinua)` 
-                        : 'Selecciona los indicadores que deseas comparar y visualizar:'}
+                        ? `Comparando ${selectedTicker} vs ${competitorTicker} (Línea Discontinua)` 
+                        : 'Márgenes de eficiencia de producción y rentabilidad sobre activos/capital'}
                     </span>
                   </div>
                   
-                  {/* Selector de Chips de KPIs */}
                   <div className="kpi-selectors-container">
-                    {ALL_KPI_METRICS.map(metric => {
-                      const isSelected = visibleKpis.includes(metric.key);
+                    {ALL_KPI_METRICS.filter(m => m.yAxisId === 'left').map(metric => {
+                      const isSelected = visibleRentabilidad.includes(metric.key);
                       return (
                         <button
                           key={metric.key}
                           className={`kpi-chip ${isSelected ? 'active' : ''}`}
                           style={{ 
                             borderColor: isSelected ? metric.color : 'var(--border-color)',
-                            backgroundColor: isSelected ? `${metric.color}18` : 'transparent',
+                            backgroundColor: isSelected ? `${metric.color}15` : 'transparent',
                             color: isSelected ? '#fff' : 'var(--text-muted)'
                           }}
                           onClick={() => {
                             if (isSelected) {
-                              if (visibleKpis.length > 1) {
-                                setVisibleKpis(visibleKpis.filter(k => k !== metric.key));
+                              if (visibleRentabilidad.length > 1) {
+                                setVisibleRentabilidad(visibleRentabilidad.filter(k => k !== metric.key));
                               }
                             } else {
-                              setVisibleKpis([...visibleKpis, metric.key]);
+                              setVisibleRentabilidad([...visibleRentabilidad, metric.key]);
                             }
                           }}
                         >
@@ -898,22 +992,15 @@ export default function App() {
                     >
                       <CartesianGrid stroke="#1e2638" strokeDasharray="3 3" />
                       <XAxis dataKey="periodoLabel" stroke="#8e9bb2" />
-                      
-                      {/* Eje Y Múltiple: Izquierdo para porcentajes, Derecho para absolutos y ratios */}
-                      <YAxis yAxisId="left" stroke="#8e9bb2" unit="%" />
-                      <YAxis yAxisId="right" orientation="right" stroke="#8e9bb2" />
-                      
+                      <YAxis stroke="#8e9bb2" unit="%" />
                       <Tooltip content={<CustomTooltip />} />
                       
-                      {/* Renderizar dinámicamente las líneas de KPIs seleccionados */}
-                      {ALL_KPI_METRICS.filter(metric => visibleKpis.includes(metric.key)).map(metric => {
+                      {ALL_KPI_METRICS.filter(metric => visibleRentabilidad.includes(metric.key)).map(metric => {
                         const elements = [];
                         if (competitorTicker) {
-                          // Línea de la empresa Principal (sólida)
                           elements.push(
                             <Line 
                               key={`${selectedTicker}-${metric.key}`}
-                              yAxisId={metric.yAxisId}
                               type="monotone"
                               name={`${selectedTicker} ${metric.label}`}
                               dataKey={`${selectedTicker} - ${metric.key}`}
@@ -922,11 +1009,9 @@ export default function App() {
                               activeDot={{ r: 6 }}
                             />
                           );
-                          // Línea de la empresa Competidora (discontinua)
                           elements.push(
                             <Line 
                               key={`${competitorTicker}-${metric.key}`}
-                              yAxisId={metric.yAxisId}
                               type="monotone"
                               name={`${competitorTicker} ${metric.label}`}
                               dataKey={`${competitorTicker} - ${metric.key}`}
@@ -937,11 +1022,9 @@ export default function App() {
                             />
                           );
                         } else {
-                          // Línea individual estándar
                           elements.push(
                             <Line 
                               key={metric.key}
-                              yAxisId={metric.yAxisId}
                               type="monotone"
                               name={metric.label}
                               dataKey={metric.key}
@@ -958,32 +1041,143 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Gráfico 2: Ingresos vs. Beneficios */}
+              {/* Gráfico 2: Solvencia y Ratios (x) */}
               <div className="chart-card glass">
-                <div className="chart-header">
+                <div className="chart-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem' }}>
                   <div className="chart-title-area">
-                    <h3 className="chart-title">Ingresos vs. Beneficios</h3>
-                    <span className="chart-subtitle">Comparativa entre facturación bruta y ganancia neta ({selectedTicker})</span>
+                    <h3 className="chart-title">Gráfico de Solvencia (Ratios)</h3>
+                    <span className="chart-subtitle">Indicadores de deuda y liquidez financiera a corto/largo plazo</span>
+                  </div>
+                  
+                  <div className="kpi-selectors-container">
+                    {ALL_KPI_METRICS.filter(m => m.yAxisId === 'right').map(metric => {
+                      const isSelected = visibleSolvencia.includes(metric.key);
+                      return (
+                        <button
+                          key={metric.key}
+                          className={`kpi-chip ${isSelected ? 'active' : ''}`}
+                          style={{ 
+                            borderColor: isSelected ? metric.color : 'var(--border-color)',
+                            backgroundColor: isSelected ? `${metric.color}15` : 'transparent',
+                            color: isSelected ? '#fff' : 'var(--text-muted)'
+                          }}
+                          onClick={() => {
+                            if (isSelected) {
+                              if (visibleSolvencia.length > 1) {
+                                setVisibleSolvencia(visibleSolvencia.filter(k => k !== metric.key));
+                              }
+                            } else {
+                              setVisibleSolvencia([...visibleSolvencia, metric.key]);
+                            }
+                          }}
+                        >
+                          <span className="chip-dot" style={{ backgroundColor: metric.color }}></span>
+                          {metric.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 
-                <div className="chart-container-wrapper">
+                <div className="chart-container-wrapper" style={{ marginTop: '0.5rem' }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart 
+                    <LineChart 
+                      data={combinedKpisData}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <CartesianGrid stroke="#1e2638" strokeDasharray="3 3" />
+                      <XAxis dataKey="periodoLabel" stroke="#8e9bb2" />
+                      <YAxis stroke="#8e9bb2" />
+                      <Tooltip content={<CustomTooltip />} />
+                      
+                      {ALL_KPI_METRICS.filter(metric => visibleSolvencia.includes(metric.key)).map(metric => {
+                        const elements = [];
+                        if (competitorTicker) {
+                          elements.push(
+                            <Line 
+                              key={`${selectedTicker}-${metric.key}`}
+                              type="monotone"
+                              name={`${selectedTicker} ${metric.label}`}
+                              dataKey={`${selectedTicker} - ${metric.key}`}
+                              stroke={metric.color}
+                              strokeWidth={3}
+                              activeDot={{ r: 6 }}
+                            />
+                          );
+                          elements.push(
+                            <Line 
+                              key={`${competitorTicker}-${metric.key}`}
+                              type="monotone"
+                              name={`${competitorTicker} ${metric.label}`}
+                              dataKey={`${competitorTicker} - ${metric.key}`}
+                              stroke={metric.color}
+                              strokeWidth={2}
+                              strokeDasharray="5 5"
+                              activeDot={{ r: 4 }}
+                            />
+                          );
+                        } else {
+                          elements.push(
+                            <Line 
+                              key={metric.key}
+                              type="monotone"
+                              name={metric.label}
+                              dataKey={metric.key}
+                              stroke={metric.color}
+                              strokeWidth={3}
+                              activeDot={{ r: 6 }}
+                            />
+                          );
+                        }
+                        return elements;
+                      })}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </section>
+
+            {/* Gráfico 3: Fundamentales y Valuación ($ y Ejes Y Múltiples) */}
+            <section className="charts-grid fade-in" style={{ marginTop: '1.5rem' }}>
+              <div className="chart-card glass" style={{ gridColumn: 'span 2' }}>
+                <div className="chart-header">
+                  <div className="chart-title-area">
+                    <h3 className="chart-title">Santo Grial: Precio de la Acción vs. Fundamentales</h3>
+                    <span className="chart-subtitle">
+                      Superposición de Ingresos y Beneficios (barras a izquierda en Billones) frente a la cotización histórica y el EPS (líneas a derecha en USD)
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="chart-container-wrapper" style={{ minHeight: '450px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart 
                       data={cronologicalFinancialsData}
                       margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
                     >
                       <CartesianGrid stroke="#1e2638" strokeDasharray="3 3" />
                       <XAxis dataKey="periodoLabel" stroke="#8e9bb2" />
-                      <YAxis stroke="#8e9bb2" unit=" B" />
+                      
+                      {/* Eje izquierdo para ingresos y beneficios de balance */}
+                      <YAxis yAxisId="left" stroke="#8e9bb2" unit=" B" />
+                      {/* Eje derecho para cotización de mercado y EPS */}
+                      <YAxis yAxisId="right" orientation="right" stroke="#8e9bb2" unit=" $" />
+                      
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#111520', borderColor: '#21293a', color: '#f3f4f6' }}
-                        formatter={(value) => [`$${value.toFixed(2)} Billones`, '']}
+                        formatter={(value, name) => {
+                          if (name.includes('Ingresos') || name.includes('Beneficios')) {
+                            return [`$${value.toFixed(2)} Billones`, name];
+                          }
+                          return [`$${value.toFixed(2)} USD`, name];
+                        }}
                       />
                       <Legend />
-                      <Bar dataKey="Ingresos (MM)" name="Ingresos" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Beneficios (MM)" name="Beneficios" fill="var(--color-secondary)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
+                      <Bar yAxisId="left" dataKey="Ingresos (MM)" name="Ingresos (Balance)" fill="var(--color-primary)" radius={[4, 4, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="Beneficios (MM)" name="Beneficio Neto (Balance)" fill="var(--color-secondary)" radius={[4, 4, 0, 0]} />
+                      <Line yAxisId="right" type="monotone" dataKey="Precio Acción ($)" name="Precio Acción (Cierre Reporte)" stroke="#fbbf24" strokeWidth={3} activeDot={{ r: 6 }} />
+                      <Line yAxisId="right" type="monotone" dataKey="EPS ($)" name="EPS (Ejes Derecho)" stroke="#a78bfa" strokeWidth={2} activeDot={{ r: 4 }} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </div>
@@ -1000,7 +1194,6 @@ export default function App() {
                   className="toggle-btn"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--color-primary)' }}
                   onClick={exportToCsv}
-                  title="Descargar datos en formato CSV para Microsoft Excel"
                 >
                   <Download size={14} /> Exportar Excel (.csv)
                 </button>
@@ -1012,12 +1205,13 @@ export default function App() {
                     <tr>
                       <th>Fecha Reporte</th>
                       <th>Periodo</th>
+                      <th>Precio Acción (Reporte)</th>
                       <th>Ingresos</th>
                       <th>Beneficio Neto</th>
                       <th>Margen Operativo</th>
-                      <th>Margen EBITDA</th>
                       <th>Margen Neto</th>
                       <th>EPS</th>
+                      <th>P/E Ratio</th>
                       <th>Current Ratio</th>
                       <th>Apalancamiento</th>
                     </tr>
@@ -1026,7 +1220,6 @@ export default function App() {
                     {filteredKpis.map((kpi) => {
                       const raw = filteredFinancials.find(f => f.fecha_reporte === kpi.fecha_reporte && f.periodo === kpi.periodo) || {};
                       
-                      // Alertas visuales
                       const hasLiquidityAlert = kpi.current_ratio && kpi.current_ratio < 1.0;
                       const hasLeverageAlert = kpi.debt_to_equity && kpi.debt_to_equity > 2.0;
                       const hasLossAlert = kpi.margen_neto && kpi.margen_neto < 0;
@@ -1042,17 +1235,22 @@ export default function App() {
                           <td style={{ fontWeight: 'bold', color: kpi.periodo === 'FY' ? '#fff' : 'var(--color-secondary)' }}>
                             {kpi.periodo}
                           </td>
+                          <td className="table-number" style={{ fontWeight: '600', color: '#fbbf24' }}>
+                            {kpi.precio_accion ? `$${kpi.precio_accion.toFixed(2)}` : 'N/A'}
+                          </td>
                           <td className="table-number">{formatCurrency(raw.total_revenue)}</td>
                           <td className="table-number" style={{ color: hasLossAlert ? 'var(--color-danger)' : 'inherit' }}>
                             {formatCurrency(raw.net_income)} {hasLossAlert && <span className="alert-badge">Pérdidas</span>}
                           </td>
                           <td className="table-number">{formatPercent(kpi.margen_operativo)}</td>
-                          <td className="table-number">{formatPercent(kpi.margen_ebitda)}</td>
                           <td className="table-number" style={{ fontWeight: '700', color: hasLossAlert ? 'var(--color-danger)' : 'var(--color-primary)' }}>
                             {formatPercent(kpi.margen_neto)}
                           </td>
                           <td className="table-number" style={{ fontWeight: '600', color: 'var(--color-success)' }}>
                             {formatEps(kpi.eps)}
+                          </td>
+                          <td className="table-number" style={{ fontWeight: '600' }}>
+                            {kpi.pe_ratio ? `${kpi.pe_ratio.toFixed(2)}x` : 'N/A'}
                           </td>
                           <td className="table-number" style={{ color: hasLiquidityAlert ? 'var(--color-danger)' : 'inherit', fontWeight: hasLiquidityAlert ? '600' : 'normal' }}>
                             {formatRatio(kpi.current_ratio)} {hasLiquidityAlert && <span className="alert-badge">Riesgo Liquidez</span>}
