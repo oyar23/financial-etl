@@ -7,6 +7,7 @@ import {
   Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw, Trash2, Download
 } from 'lucide-react';
 import './App.css';
+import { STATIC_COMPANIES, STATIC_FINANCIALS, STATIC_KPIS } from './staticData';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -71,6 +72,7 @@ export default function App() {
   
   // Estado de actualización manual del ETL
   const [refreshingETL, setRefreshingETL] = useState(false);
+  const [isStaticMode, setIsStaticMode] = useState(false);
 
   // Cargar lista inicial de empresas favoritas
   const loadCompanies = (selectTickerAfterLoad = null) => {
@@ -81,6 +83,7 @@ export default function App() {
       })
       .then(data => {
         setCompanies(data);
+        setIsStaticMode(false);
         if (data.length > 0) {
           if (selectTickerAfterLoad) {
             setSelectedTicker(selectTickerAfterLoad);
@@ -100,8 +103,13 @@ export default function App() {
         }
       })
       .catch(err => {
-        console.error(err);
-        setError('No se pudo conectar con la API del Backend. Verifica que FastAPI está corriendo.');
+        console.warn("Backend de FastAPI inaccesible. Activando modo demostración con datos estáticos.", err);
+        setIsStaticMode(true);
+        setCompanies(STATIC_COMPANIES);
+        if (STATIC_COMPANIES.length > 0) {
+          const hasAmazon = STATIC_COMPANIES.find(c => c.ticker === 'AMZN');
+          setSelectedTicker(hasAmazon ? 'AMZN' : STATIC_COMPANIES[0].ticker);
+        }
       });
   };
 
@@ -115,6 +123,48 @@ export default function App() {
       setLoading(false);
       return;
     }
+
+    if (isStaticMode) {
+      setLoading(true);
+      setError(null);
+      const periodQuery = timeframe === 'Anual' ? 'FY' : 'Q';
+      
+      const mainFin = STATIC_FINANCIALS[selectedTicker]?.[periodQuery] || [];
+      const mainKpis = STATIC_KPIS[selectedTicker]?.[periodQuery] || [];
+      
+      setFinancials(mainFin);
+      setKpis(mainKpis);
+      
+      if (competitorTicker) {
+        setCompetitorFinancials(STATIC_FINANCIALS[competitorTicker]?.[periodQuery] || []);
+        setCompetitorKpis(STATIC_KPIS[competitorTicker]?.[periodQuery] || []);
+      } else {
+        setCompetitorFinancials([]);
+        setCompetitorKpis([]);
+      }
+      
+      const allData = [...mainFin, ...mainKpis];
+      if (competitorTicker) {
+        allData.push(
+          ...(STATIC_FINANCIALS[competitorTicker]?.[periodQuery] || []),
+          ...(STATIC_KPIS[competitorTicker]?.[periodQuery] || [])
+        );
+      }
+      
+      const years = Array.from(new Set(
+        allData.map(item => item.fecha_reporte.split('-')[0])
+      )).sort();
+      
+      if (years.length > 0) {
+        setAvailableYears(years);
+        if (!years.includes(startYear)) setStartYear(years[0]);
+        if (!years.includes(endYear)) setEndYear(years[years.length - 1]);
+      }
+      
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -181,7 +231,7 @@ export default function App() {
 
   useEffect(() => {
     loadData();
-  }, [selectedTicker, timeframe, competitorTicker]);
+  }, [selectedTicker, timeframe, competitorTicker, isStaticMode]);
 
   // Manejar cambio de empresa principal
   const handleCompanyChange = (e) => {
@@ -702,6 +752,17 @@ export default function App() {
 
       {/* Main Content */}
       <main className="dashboard-main">
+        {isStaticMode && (
+          <div className="demo-warning-banner fade-in">
+            <AlertTriangle size={20} style={{ color: 'var(--color-secondary)', flexShrink: 0 }} />
+            <div>
+              <strong>⚠️ MODO DEMOSTRACIÓN (ESTÁTICO):</strong> No se pudo conectar con la base de datos y la API de FastAPI. 
+              Estás visualizando datos financieros históricos reales pre-recopilados de muestra. Para habilitar búsquedas dinámicas, agregar empresas y correr el ETL en tiempo real, 
+              clona el repositorio y monta la aplicación localmente en tu computadora con Docker siguiendo los pasos detallados en el <a href="https://github.com/oyar23/financial-etl" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-secondary)', textDecoration: 'underline' }}>README del Repositorio</a>.
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="error-message fade-in">
             <AlertTriangle size={24} />
