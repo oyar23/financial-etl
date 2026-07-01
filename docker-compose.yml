@@ -93,6 +93,25 @@ services:
     networks:
       - finance_network
 
+  api:
+    image: python:3.11-slim
+    container_name: finance_api
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres_password@postgres:5432/finance_db
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: >
+      bash -c "pip install --no-cache-dir -r requirements.txt &&
+      uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload"
+    depends_on:
+      - postgres
+    networks:
+      - finance_network
+
 volumes:
   postgres_data:
   pgadmin_data:
