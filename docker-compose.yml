@@ -46,6 +46,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres_password@postgres:5432/finance_db
     ports:
       - "8088:8080"
+    command: webserver
     volumes:
       - ./airflow_dags:/opt/airflow/dags
       - ./etl:/opt/airflow/etl
@@ -69,6 +70,7 @@ services:
       - ./airflow_dags:/opt/airflow/dags
       - ./etl:/opt/airflow/etl
       - airflow_logs:/opt/airflow/logs
+    command: scheduler
     depends_on:
       - postgres
     networks:
