@@ -1,8 +1,13 @@
 # Financial ETL & Valuation Dashboard
 
-Una plataforma web e infraestructura de datos contenerizada para realizar análisis fundamental de empresas cotizadas. Permite extraer reportes anuales y trimestrales de Yahoo Finance, almacenar los datos crudos en PostgreSQL y visualizar gráficos sectorizados y métricas clave de inversión (ROE, ROA, Ratios de Liquidez, Altman Score, desgloses interanuales YoY y el Análisis DuPont).
+> **🚀 Demo en Vivo (Modo Estático):** [https://finance-pipeline.netlify.app/](https://finance-pipeline.netlify.app/)
+>
+> *Proyecto orientado a perfiles de **Data Engineering** y **Data Analysis**.*
+
+Una infraestructura de datos contenerizada y plataforma web diseñada para realizar la extracción, transformación, carga (ETL) y análisis fundamental de empresas cotizadas. Permite programar la recopilación de reportes anuales/trimestrales y precios históricos de acciones desde Yahoo Finance (`yfinance`), almacenar y modelar los datos en PostgreSQL de manera normalizada, y presentarlos en un dashboard interactivo de grado profesional (ROE/ROA, Altman Score, desgloses YoY y Análisis DuPont).
 
 ---
+
 
 ## 🛠️ Arquitectura del Sistema
 

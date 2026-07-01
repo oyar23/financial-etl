@@ -73,6 +73,7 @@ export default function App() {
   // Estado de actualización manual del ETL
   const [refreshingETL, setRefreshingETL] = useState(false);
   const [isStaticMode, setIsStaticMode] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // Cargar lista inicial de empresas favoritas
   const loadCompanies = (selectTickerAfterLoad = null) => {
@@ -105,6 +106,7 @@ export default function App() {
       .catch(err => {
         console.warn("Backend de FastAPI inaccesible. Activando modo demostración con datos estáticos.", err);
         setIsStaticMode(true);
+        setShowDisclaimer(true);
         setCompanies(STATIC_COMPANIES);
         if (STATIC_COMPANIES.length > 0) {
           const hasAmazon = STATIC_COMPANIES.find(c => c.ticker === 'AMZN');
@@ -267,6 +269,10 @@ export default function App() {
 
   // Ejecución manual del ETL
   const triggerETL = () => {
+    if (isStaticMode) {
+      alert("Esta acción requiere una conexión activa con el Backend y la base de datos de PostgreSQL. Por favor, monta el pipeline de forma local utilizando Docker Compose para interactuar de forma dinámica.");
+      return;
+    }
     setRefreshingETL(true);
     fetch(`${API_BASE_URL}/etl/run`, { method: 'POST' })
       .then(res => res.json())
@@ -286,6 +292,10 @@ export default function App() {
 
   // Manejar eliminación de empresa
   const handleDeleteCompany = () => {
+    if (isStaticMode) {
+      alert("Esta acción requiere una conexión activa con el Backend y la base de datos de PostgreSQL. Por favor, monta el pipeline de forma local utilizando Docker Compose para interactuar de forma dinámica.");
+      return;
+    }
     if (!selectedTicker) return;
     const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar la empresa ${selectedTicker} y todos sus registros históricos en cascada?`);
     if (!confirmDelete) return;
@@ -724,7 +734,13 @@ export default function App() {
                 <button 
                   className="toggle-btn active"
                   style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', backgroundColor: 'var(--color-primary-glow)', borderColor: 'var(--color-primary)' }}
-                  onClick={() => setShowAddModal(true)}
+                  onClick={() => {
+                    if (isStaticMode) {
+                      alert("Esta acción requiere una conexión activa con el Backend y la base de datos de PostgreSQL. Por favor, monta el pipeline de forma local utilizando Docker Compose para interactuar de forma dinámica.");
+                    } else {
+                      setShowAddModal(true);
+                    }
+                  }}
                 >
                   <Plus size={16} /> Sumar Empresa
                 </button>
@@ -1424,6 +1440,45 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Disclaimer de Modo Demo */}
+      {showDisclaimer && (
+        <div className="modal-overlay">
+          <div className="modal-container glass fade-in" style={{ maxWidth: '520px' }}>
+            <div className="modal-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-secondary)' }}>
+                <AlertTriangle size={22} /> Aviso de Modo Demostración
+              </h3>
+            </div>
+            
+            <div style={{ padding: '1rem 0', display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.92rem', lineHeight: '1.5', color: 'var(--text-main)' }}>
+              <p>
+                Esta aplicación está desplegada en **Modo Estático de Demostración** porque no se encuentra conectada a una base de datos PostgreSQL activa ni a la API de FastAPI.
+              </p>
+              <p>
+                Puedes explorar libremente los gráficos interactivos sectorizados, el desglosador DuPont, las variaciones interanuales (YoY) y las tablas de datos para las empresas pre-cargadas (**AAPL, MSFT, TSLA y AMZN**).
+              </p>
+              <p style={{ padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', borderLeft: '3px solid var(--color-primary)' }}>
+                <strong>Orientación del Proyecto:</strong> Este es un proyecto de portafolio para perfiles de <strong>Data Engineering y Data Analysis</strong>. El verdadero valor de este desarrollo radica en el pipeline ETL automatizado con Airflow y la infraestructura contenerizada con Docker.
+              </p>
+              <p>
+                Para habilitar todas las funciones dinámicas (sumar nuevas empresas y ejecutar el ETL en tiempo real), clona el repositorio y ejecútalo localmente en tu computadora siguiendo la guía del README.
+              </p>
+            </div>
+
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+              <button 
+                type="button" 
+                className="toggle-btn active" 
+                style={{ width: '100%', justifyContent: 'center', backgroundColor: 'var(--color-primary-glow)' }}
+                onClick={() => setShowDisclaimer(false)}
+              >
+                Entendido, Explorar Demo
+              </button>
+            </div>
           </div>
         </div>
       )}
