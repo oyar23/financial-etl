@@ -202,3 +202,20 @@ def run_etl_endpoint(background_tasks: BackgroundTasks):
         return {"message": "Proceso ETL iniciado en segundo plano. Los datos se actualizarán en breve."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"No se pudo iniciar el proceso ETL: {str(e)}")
+
+@app.delete("/empresas/{ticker}", tags=["Empresas"])
+def delete_empresa(ticker: str, db: Session = Depends(get_db)):
+    """
+    Elimina una empresa favorita y todos sus datos relacionados (RAW y KPIs) en cascada.
+    """
+    ticker_upper = ticker.strip().upper()
+    empresa = db.query(EmpresaFavorita).filter(EmpresaFavorita.ticker == ticker_upper).first()
+    if not empresa:
+        raise HTTPException(status_code=404, detail=f"Empresa con ticker '{ticker_upper}' no encontrada.")
+    try:
+        db.delete(empresa)
+        db.commit()
+        return {"message": f"Empresa {ticker_upper} eliminada exitosamente."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error al eliminar la empresa: {str(e)}")

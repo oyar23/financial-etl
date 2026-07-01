@@ -4,7 +4,7 @@ import {
   LineChart, Line
 } from 'recharts';
 import { 
-  Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw
+  Star, TrendingUp, Percent, Activity, DollarSign, Calendar, AlertTriangle, Plus, X, RefreshCw, Trash2
 } from 'lucide-react';
 import './App.css';
 
@@ -20,9 +20,21 @@ const MOCK_STOCK_PRICES = {
   GOOGL: { price: '173.50', change: '+1.80', pct: '+1.05', status: 'positive' }
 };
 
+// Lista de KPIs disponibles para interactuar y graficar
+const ALL_KPI_METRICS = [
+  { key: 'Margen Neto (%)', label: 'Margen Neto', color: 'var(--color-primary)' },
+  { key: 'Margen Operativo (%)', label: 'Margen Operativo', color: 'var(--color-success)' },
+  { key: 'Margen EBITDA (%)', label: 'Margen EBITDA', color: 'var(--color-secondary)' },
+  { key: 'ROE (%)', label: 'ROE', color: '#e879f9' },
+  { key: 'ROA (%)', label: 'ROA', color: '#22d3ee' },
+  { key: 'Apalancamiento (x)', label: 'Apalancamiento (D/E)', color: '#f87171' },
+  { key: 'Liquidez (x)', label: 'Liquidez Corriente', color: '#fbbf24' },
+  { key: 'EPS ($)', label: 'EPS', color: '#a78bfa' }
+];
+
 export default function App() {
   const [companies, setCompanies] = useState([]);
-  const [selectedTicker, setSelectedTicker] = useState('AMZN');
+  const [selectedTicker, setSelectedTicker] = useState('');
   const [financials, setFinancials] = useState([]);
   const [kpis, setKpis] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,6 +42,13 @@ export default function App() {
   
   // Toggles de periodo
   const [timeframe, setTimeframe] = useState('Anual'); // 'Anual' o 'Trimestral'
+  
+  // KPIs que el usuario desea ver en el gráfico
+  const [visibleKpis, setVisibleKpis] = useState([
+    'Margen Neto (%)', 
+    'Margen Operativo (%)', 
+    'Margen EBITDA (%)'
+  ]);
   
   // Filtros de fecha (Años)
   const [startYear, setStartYear] = useState('2022');
@@ -64,9 +83,19 @@ export default function App() {
           if (selectTickerAfterLoad) {
             setSelectedTicker(selectTickerAfterLoad);
           } else {
-            const hasAmazon = data.find(c => c.ticker === 'AMZN');
-            setSelectedTicker(hasAmazon ? 'AMZN' : data[0].ticker);
+            // Si el ticker previamente seleccionado sigue estando activo, mantenerlo
+            const stillExists = selectedTicker && data.find(c => c.ticker === selectedTicker);
+            if (stillExists) {
+              setSelectedTicker(selectedTicker);
+            } else {
+              const hasAmazon = data.find(c => c.ticker === 'AMZN');
+              setSelectedTicker(hasAmazon ? 'AMZN' : data[0].ticker);
+            }
           }
+        } else {
+          setSelectedTicker('');
+          setFinancials([]);
+          setKpis([]);
         }
       })
       .catch(err => {
@@ -79,15 +108,12 @@ export default function App() {
     loadCompanies();
   }, []);
 
-  // Manejar cambio de empresa
-  const handleCompanyChange = (e) => {
-    setSelectedTicker(e.target.value);
-    setIsFavorite(false);
-  };
-
   // Cargar datos financieros y KPIs
   const loadData = () => {
-    if (!selectedTicker) return;
+    if (!selectedTicker) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -113,8 +139,9 @@ export default function App() {
         
         if (years.length > 0) {
           setAvailableYears(years);
-          setStartYear(years[0]);
-          setEndYear(years[years.length - 1]);
+          // Validar que el rango de años actual esté dentro de los años disponibles
+          if (!years.includes(startYear)) setStartYear(years[0]);
+          if (!years.includes(endYear)) setEndYear(years[years.length - 1]);
         }
         
         setLoading(false);
@@ -130,6 +157,12 @@ export default function App() {
     loadData();
   }, [selectedTicker, timeframe]);
 
+  // Manejar cambio de empresa
+  const handleCompanyChange = (e) => {
+    setSelectedTicker(e.target.value);
+    setIsFavorite(false); // Reset de favorito estético
+  };
+
   // Ejecución manual del ETL
   const triggerETL = () => {
     setRefreshingETL(true);
@@ -137,7 +170,6 @@ export default function App() {
       .then(res => res.json())
       .then(data => {
         alert("El pipeline ETL de Docker se ha iniciado en segundo plano. Los datos se actualizarán en un momento.");
-        // Esperamos 4 segundos y recargamos los datos
         setTimeout(() => {
           loadData();
           setRefreshingETL(false);
@@ -147,6 +179,30 @@ export default function App() {
         console.error(err);
         alert("No se pudo iniciar el proceso ETL.");
         setRefreshingETL(false);
+      });
+  };
+
+  // Manejar eliminación de empresa (DELETE /empresas/{ticker})
+  const handleDeleteCompany = () => {
+    if (!selectedTicker) return;
+    const confirmDelete = window.confirm(`¿Estás seguro de que deseas eliminar la empresa ${selectedTicker} y todos sus registros históricos en cascada?`);
+    if (!confirmDelete) return;
+
+    fetch(`${API_BASE_URL}/empresas/${selectedTicker}`, {
+      method: 'DELETE'
+    })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Error al eliminar la empresa');
+        return data;
+      })
+      .then(() => {
+        alert(`Empresa ${selectedTicker} eliminada exitosamente.`);
+        loadCompanies();
+      })
+      .catch(err => {
+        console.error(err);
+        alert(`No se pudo eliminar la empresa: ${err.message}`);
       });
   };
 
@@ -187,7 +243,6 @@ export default function App() {
         fetch(`${API_BASE_URL}/etl/run`, { method: 'POST' })
           .then(() => {
             setTimeout(() => {
-              // Limpiar formulario y cerrar modal
               setNewTicker('');
               setNewName('');
               setNewSector('');
@@ -195,13 +250,12 @@ export default function App() {
               setShowAddModal(false);
               setModalSuccess(null);
               
-              // Recargar selector de empresas y seleccionar la nueva empresa agregada
               loadCompanies(company.ticker);
             }, 3000);
           })
           .catch(() => {
             setSubmitting(false);
-            setModalError('Se creó la empresa pero no se pudo ejecutar el pipeline ETL automáticamente. Intenta actualizar manualmente.');
+            setModalError('Se creó la empresa pero no se pudo ejecutar el pipeline ETL automáticamente.');
           });
       })
       .catch(err => {
@@ -224,14 +278,14 @@ export default function App() {
 
   // Obtener la información de la empresa actual
   const currentCompany = companies.find(c => c.ticker === selectedTicker) || {
-    ticker: selectedTicker,
-    nombre_empresa: selectedTicker,
+    ticker: selectedTicker || 'Ninguna',
+    nombre_empresa: selectedTicker ? selectedTicker : 'No hay empresas registradas',
     sector: 'N/A'
   };
 
   // kpis está ordenado DESC, el índice 0 es el reporte más reciente
   const latestKpi = filteredKpis[0] || {};
-  const mockPrice = MOCK_STOCK_PRICES[selectedTicker] || { price: '150.00', change: '+0.00', pct: '+0.00', status: 'positive' };
+  const mockPrice = MOCK_STOCK_PRICES[selectedTicker] || { price: '0.00', change: '+0.00', pct: '+0.00', status: 'positive' };
 
   // Formateadores didácticos
   const formatCurrency = (value) => {
@@ -262,6 +316,11 @@ export default function App() {
     'Margen Neto (%)': item.margen_neto ? Math.round(item.margen_neto * 10000) / 100 : 0,
     'Margen Operativo (%)': item.margen_operativo ? Math.round(item.margen_operativo * 10000) / 100 : 0,
     'Margen EBITDA (%)': item.margen_ebitda ? Math.round(item.margen_ebitda * 10000) / 100 : 0,
+    'ROE (%)': item.roe ? Math.round(item.roe * 10000) / 100 : 0,
+    'ROA (%)': item.roa ? Math.round(item.roa * 10000) / 100 : 0,
+    'Apalancamiento (x)': item.debt_to_equity ? Math.round(item.debt_to_equity * 100) / 100 : 0,
+    'Liquidez (x)': item.current_ratio ? Math.round(item.current_ratio * 100) / 100 : 0,
+    'EPS ($)': item.eps ? Math.round(item.eps * 100) / 100 : 0,
   }));
 
   const cronologicalFinancialsData = [...filteredFinancials].map(item => ({
@@ -291,12 +350,17 @@ export default function App() {
                 className="select-input" 
                 value={selectedTicker} 
                 onChange={handleCompanyChange}
+                disabled={companies.length === 0}
               >
-                {companies.map(c => (
-                  <option key={c.id} value={c.ticker}>
-                    {c.ticker} - {c.nombre_empresa}
-                  </option>
-                ))}
+                {companies.length === 0 ? (
+                  <option value="">(Sin empresas)</option>
+                ) : (
+                  companies.map(c => (
+                    <option key={c.id} value={c.ticker}>
+                      {c.ticker} - {c.nombre_empresa}
+                    </option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -307,6 +371,7 @@ export default function App() {
                 className="select-input" 
                 value={startYear} 
                 onChange={(e) => setStartYear(e.target.value)}
+                disabled={companies.length === 0}
               >
                 {availableYears.map(year => (
                   <option key={year} value={year} disabled={year > endYear}>
@@ -323,6 +388,7 @@ export default function App() {
                 className="select-input" 
                 value={endYear} 
                 onChange={(e) => setEndYear(e.target.value)}
+                disabled={companies.length === 0}
               >
                 {availableYears.map(year => (
                   <option key={year} value={year} disabled={year < startYear}>
@@ -351,6 +417,15 @@ export default function App() {
                 >
                   <RefreshCw size={16} className={refreshingETL ? 'spin' : ''} /> {refreshingETL ? 'Corriendo...' : 'Correr ETL'}
                 </button>
+                <button 
+                  className="toggle-btn"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'var(--color-danger)', color: 'var(--color-danger)' }}
+                  onClick={handleDeleteCompany}
+                  disabled={!selectedTicker}
+                  title="Eliminar esta empresa de la base de datos"
+                >
+                  <Trash2 size={16} /> Eliminar
+                </button>
               </div>
             </div>
           </div>
@@ -368,7 +443,20 @@ export default function App() {
           </div>
         )}
 
-        {loading ? (
+        {companies.length === 0 ? (
+          <div className="empty-state-screen glass fade-in">
+            <AlertTriangle size={48} className="kpi-icon" style={{ color: 'var(--color-secondary)' }} />
+            <h2>No hay empresas registradas</h2>
+            <p>Comienza agregando tu primera empresa de Yahoo Finance haciendo clic en el botón superior.</p>
+            <button 
+              className="toggle-btn active" 
+              style={{ padding: '0.75rem 1.5rem', marginTop: '1rem', fontSize: '1rem', backgroundColor: 'var(--color-primary-glow)' }}
+              onClick={() => setShowAddModal(true)}
+            >
+              <Plus size={18} /> Agregar Empresa Favorita
+            </button>
+          </div>
+        ) : loading ? (
           <div className="loading-screen fade-in">
             <div className="spinner"></div>
             <p>Conectando a PostgreSQL y cargando métricas financieras ({timeframe})...</p>
@@ -450,16 +538,46 @@ export default function App() {
             {/* Grid de Gráficos (Estilo Referencia) */}
             <section className="charts-grid fade-in">
               
-              {/* Gráfico 1: Rentabilidad y Márgenes (EBITDA, Operativo y Neto) */}
+              {/* Gráfico 1: Análisis Interactivo de KPIs */}
               <div className="chart-card glass">
-                <div className="chart-header">
+                <div className="chart-header" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.75rem' }}>
                   <div className="chart-title-area">
-                    <h3 className="chart-title">Márgenes de Rentabilidad (KPIs)</h3>
-                    <span className="chart-subtitle">Histórico comparativo de Márgenes Neto, Operativo y EBITDA</span>
+                    <h3 className="chart-title">Análisis de KPIs Interactivo</h3>
+                    <span className="chart-subtitle">Selecciona los indicadores que deseas comparar y visualizar:</span>
+                  </div>
+                  
+                  {/* Selector de Chips de KPIs */}
+                  <div className="kpi-selectors-container">
+                    {ALL_KPI_METRICS.map(metric => {
+                      const isSelected = visibleKpis.includes(metric.key);
+                      return (
+                        <button
+                          key={metric.key}
+                          className={`kpi-chip ${isSelected ? 'active' : ''}`}
+                          style={{ 
+                            borderColor: isSelected ? metric.color : 'var(--border-color)',
+                            backgroundColor: isSelected ? `${metric.color}18` : 'transparent',
+                            color: isSelected ? '#fff' : 'var(--text-muted)'
+                          }}
+                          onClick={() => {
+                            if (isSelected) {
+                              if (visibleKpis.length > 1) {
+                                setVisibleKpis(visibleKpis.filter(k => k !== metric.key));
+                              }
+                            } else {
+                              setVisibleKpis([...visibleKpis, metric.key]);
+                            }
+                          }}
+                        >
+                          <span className="chip-dot" style={{ backgroundColor: metric.color }}></span>
+                          {metric.label}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 
-                <div className="chart-container-wrapper">
+                <div className="chart-container-wrapper" style={{ marginTop: '0.5rem' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart 
                       data={cronologicalKpisData}
@@ -467,15 +585,22 @@ export default function App() {
                     >
                       <CartesianGrid stroke="#1e2638" strokeDasharray="3 3" />
                       <XAxis dataKey="periodoLabel" stroke="#8e9bb2" />
-                      <YAxis stroke="#8e9bb2" unit="%" />
+                      <YAxis stroke="#8e9bb2" />
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#111520', borderColor: '#21293a', color: '#f3f4f6' }}
                         labelStyle={{ fontWeight: 'bold' }}
                       />
                       <Legend />
-                      <Line type="monotone" dataKey="Margen EBITDA (%)" stroke="var(--color-secondary)" strokeWidth={3} />
-                      <Line type="monotone" dataKey="Margen Operativo (%)" stroke="var(--color-success)" strokeWidth={3} />
-                      <Line type="monotone" dataKey="Margen Neto (%)" stroke="var(--color-primary)" strokeWidth={3} activeDot={{ r: 8 }} />
+                      {ALL_KPI_METRICS.filter(metric => visibleKpis.includes(metric.key)).map(metric => (
+                        <Line 
+                          key={metric.key}
+                          type="monotone"
+                          dataKey={metric.key}
+                          stroke={metric.color}
+                          strokeWidth={3}
+                          activeDot={{ r: 6 }}
+                        />
+                      ))}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
